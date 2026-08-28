@@ -51,6 +51,7 @@ export interface TransactionRecord {
   editedCount: number;
   createdAt: Date;
   updatedAt: Date;
+  deletedAt?: Date | null;
   rev: number;
 }
 
@@ -170,6 +171,7 @@ function toRecord(doc: TransactionDoc): TransactionRecord {
     editedCount: doc.editedCount ?? 0,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
+    deletedAt: doc.deletedAt ?? null,
     rev: doc.rev ?? 0,
   };
 }

@@ -12,6 +12,7 @@ import type { UserPublic } from "@moneytalks/types";
 import type { LoginInput, RegisterInput } from "../lib/api/client.js";
 import { apiClient } from "../lib/api/index.js";
 import { sessionStore } from "../lib/session.js";
+import { newClientId } from "../lib/constants.js";
 
 interface AuthContextValue {
   user: UserPublic | null;
@@ -44,6 +45,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setStatus("ready");
       return;
     }
+    if (!sessionStore.load().deviceId) {
+      sessionStore.setDeviceId(newClientId());
+    }
     try {
       const { user } = await apiClient.auth.me();
       setUser(user);
@@ -62,6 +66,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (input: LoginInput) => {
     const res = await apiClient.auth.login(input);
     sessionStore.setTokens(res.accessToken, res.refreshToken);
+    sessionStore.setDeviceId(res.deviceId);
     sessionStore.setUser(res.user);
     setUser(res.user);
     setStatus("ready");

@@ -72,6 +72,7 @@ function makeCategoryRepo(
     create: async () => records[0] as CategoryRecord,
     findById: async () => null,
     findActiveById: async () => null,
+    findByClientId: async () => null,
     findByNameAndType: async () => null,
     findDefaultByType: async () => null,
     listByUser: async () => records,

@@ -62,6 +62,10 @@ export interface CategoryRepository {
     userId: string | Types.ObjectId,
     id: string | Types.ObjectId,
   ): Promise<CategoryRecord | null>;
+  findByClientId(
+    userId: string | Types.ObjectId,
+    clientId: string,
+  ): Promise<CategoryRecord | null>;
   findByNameAndType(
     userId: string | Types.ObjectId,
     name: string,
@@ -175,6 +179,14 @@ export function createCategoryRepository(): CategoryRepository {
     return doc ? toRecord(doc) : null;
   }
 
+  async function findByClientId(
+    userId: string | Types.ObjectId,
+    clientId: string,
+  ) {
+    const doc = await CategoryModel.findOne({ userId, clientId }).exec();
+    return doc ? toRecord(doc) : null;
+  }
+
   async function findDefaultByType(
     userId: string | Types.ObjectId,
     type: string,
@@ -272,6 +284,7 @@ export function createCategoryRepository(): CategoryRepository {
     create,
     findById,
     findActiveById,
+    findByClientId,
     findByNameAndType,
     findDefaultByType,
     listByUser,

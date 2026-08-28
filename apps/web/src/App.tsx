@@ -1,5 +1,6 @@
 import { createBrowserRouter, Navigate, RouterProvider } from "react-router-dom";
 import { AuthProvider } from "./state/auth-context.js";
+import { SyncProvider } from "./state/sync-context.js";
 import { ToastProvider } from "./components/ui/Toast.js";
 import { RequireAuth, GuestOnly } from "./components/auth/Guards.js";
 import { AppShell } from "./components/layout/AppShell.js";
@@ -32,7 +33,9 @@ export const router = createBrowserRouter([
   {
     element: (
       <RequireAuth>
-        <AppShell />
+        <SyncProvider>
+          <AppShell />
+        </SyncProvider>
       </RequireAuth>
     ),
     children: [

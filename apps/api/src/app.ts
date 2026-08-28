@@ -22,6 +22,8 @@ import { createAnalyticsController } from "./modules/analytics/controller.js";
 import { AnalyticsService } from "./modules/analytics/service.js";
 import { createDashboardController } from "./modules/dashboard/controller.js";
 import { DashboardService } from "./modules/dashboard/service.js";
+import { createSyncController } from "./modules/sync/controller.js";
+import { SyncService } from "./modules/sync/service.js";
 import { SlidingWindowRateLimiter } from "./lib/rate-limiter.js";
 import type { RateLimitDeps } from "./middlewares/rate-limit.js";
 
@@ -42,6 +44,8 @@ export interface AppDeps {
   analyticsService?: AnalyticsService;
   /** Injectable for tests. When omitted, a default service is built. */
   dashboardService?: DashboardService;
+  /** Injectable for tests. When omitted, a default service is built. */
+  syncService?: SyncService;
   /** Injectable for tests. When omitted, limiters are built from config. */
   rateLimiters?: { auth: RateLimitDeps; register: RateLimitDeps };
   /**
@@ -147,6 +151,17 @@ export function createApp(deps: AppDeps): Express {
 
   const dashboardController = createDashboardController(dashboardService);
 
+  const syncService =
+    deps.syncService ??
+    new SyncService({
+      logger,
+      transactionService: transactionsService,
+      categoryService: categoriesService,
+      paymentMethodService: paymentMethodsService,
+    });
+
+  const syncController = createSyncController(syncService);
+
   const app = express();
   app.disable("x-powered-by");
   app.set("trust proxy", config.env === "production");
@@ -168,6 +183,7 @@ export function createApp(deps: AppDeps): Express {
       budgets: { controller: budgetsController, config },
       analytics: { controller: analyticsController, config },
       dashboard: { controller: dashboardController, config },
+      sync: { controller: syncController, config },
     }),
   );
 

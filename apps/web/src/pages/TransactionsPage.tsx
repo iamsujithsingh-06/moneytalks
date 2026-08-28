@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { TransactionListResult, TransactionPublic } from "@moneytalks/types";
-import { api } from "../lib/api/index.js";
+import { offlineStore, syncEngine } from "../lib/offline/index.js";
 import { DEFAULT_CURRENCY } from "../lib/constants.js";
 import { formatDate, formatMoney } from "../lib/format.js";
 import { TYPE_LABELS } from "../lib/labels.js";
@@ -33,20 +33,27 @@ export function TransactionsPage() {
   const [deleting, setDeleting] = useState<TransactionPublic | null>(null);
   const [deletingBusy, setDeletingBusy] = useState(false);
 
-  const load = useCallback(async (f: Filters, cursor?: string) => {
+  const load = useCallback(async (f: Filters) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.transactions.list({
-        limit: 50,
-        cursor,
-        q: f.q || undefined,
-        type: (f.type as never) || undefined,
-        direction: (f.direction as never) || undefined,
-      });
-      setResult((prev) =>
-        cursor && prev ? { ...res, items: [...prev.items, ...res.items] } : res,
-      );
+      const all = await offlineStore.list("transactions");
+      const q = f.q.trim().toLowerCase();
+      const filtered = all
+        .filter((t) => {
+          if (f.type && t.type !== f.type) return false;
+          if (f.direction && t.direction !== f.direction) return false;
+          if (q) {
+            const hay = `${t.merchant ?? ""} ${t.note ?? ""} ${TYPE_LABELS[t.type] ?? t.type}`.toLowerCase();
+            if (!hay.includes(q)) return false;
+          }
+          return true;
+        })
+        .sort((a, b) => {
+          const byDate = String(b.transactionDate).localeCompare(String(a.transactionDate));
+          return byDate !== 0 ? byDate : String(b.createdAt).localeCompare(String(a.createdAt));
+        });
+      setResult({ items: filtered, nextCursor: null, total: filtered.length });
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -69,11 +76,12 @@ export function TransactionsPage() {
     if (!deleting) return;
     setDeletingBusy(true);
     try {
-      await api.transactions.remove(deleting.id);
+      await offlineStore.remove("transactions", deleting.clientId);
+      void syncEngine.sync("manual");
       toast("Transaction deleted");
       setDeleting(null);
       setResult((prev) =>
-        prev ? { ...prev, items: prev.items.filter((t) => t.id !== deleting.id) } : prev,
+        prev ? { ...prev, items: prev.items.filter((t) => t.clientId !== deleting.clientId) } : prev,
       );
     } catch (err) {
       toast((err as Error).message, "error");
@@ -193,17 +201,6 @@ export function TransactionsPage() {
               </li>
             ))}
           </ul>
-          {result.nextCursor ? (
-            <div className="border-t border-border p-3 text-center">
-              <Button
-                variant="ghost"
-                loading={loading}
-                onClick={() => void load(filters, result.nextCursor ?? undefined)}
-              >
-                Load more
-              </Button>
-            </div>
-          ) : null}
         </Card>
       ) : null}
 

@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import type { CategoryPublic, PaymentMethodPublic, TransactionPublic } from "@moneytalks/types";
 import { TransactionType } from "@moneytalks/shared";
 import { toMinorUnits } from "@moneytalks/shared";
-import { api } from "../../lib/api/index.js";
 import { useApi } from "../../lib/use-api.js";
+import { offlineStore, syncEngine } from "../../lib/offline/index.js";
 import { newClientId, DEFAULT_CURRENCY } from "../../lib/constants.js";
 import { Field, Input, Select, Textarea } from "../ui/forms.js";
 import { Button } from "../ui/Button.js";
@@ -62,8 +62,8 @@ export function TransactionFormModal({
     }
   }, [open, tx]);
 
-  const cats = useApi<CategoryPublic[]>(() => api.categories.list());
-  const methods = useApi<PaymentMethodPublic[]>(() => api.paymentMethods.list());
+  const cats = useApi<CategoryPublic[]>(() => offlineStore.list("categories"));
+  const methods = useApi<PaymentMethodPublic[]>(() => offlineStore.list("payment-methods"));
 
   const set = (k: keyof FormState) => (v: string) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -102,10 +102,11 @@ export function TransactionFormModal({
         paymentMethodId: form.paymentMethodId || undefined,
       };
       if (tx) {
-        await api.transactions.update(tx.id, payload);
+        await offlineStore.update("transactions", tx.clientId, payload);
       } else {
-        await api.transactions.create({ ...payload, clientId: newClientId() });
+        await offlineStore.create("transactions", { ...payload, clientId: newClientId() });
       }
+      void syncEngine.sync("manual");
       await onSaved();
       onClose();
     } catch (err) {

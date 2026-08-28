@@ -57,6 +57,10 @@ export interface PaymentMethodRepository {
     userId: string | Types.ObjectId,
     id: string | Types.ObjectId,
   ): Promise<PaymentMethodRecord | null>;
+  findByClientId(
+    userId: string | Types.ObjectId,
+    clientId: string,
+  ): Promise<PaymentMethodRecord | null>;
   findByNameAndKind(
     userId: string | Types.ObjectId,
     name: string,
@@ -156,6 +160,14 @@ export function createPaymentMethodRepository(): PaymentMethodRepository {
     return doc ? toRecord(doc) : null;
   }
 
+  async function findByClientId(
+    userId: string | Types.ObjectId,
+    clientId: string,
+  ) {
+    const doc = await PaymentMethodModel.findOne({ userId, clientId }).exec();
+    return doc ? toRecord(doc) : null;
+  }
+
   async function findDefault(userId: string | Types.ObjectId) {
     const doc = await PaymentMethodModel.findOne({
       userId,
@@ -229,6 +241,7 @@ export function createPaymentMethodRepository(): PaymentMethodRepository {
     create,
     findById,
     findActiveById,
+    findByClientId,
     findByNameAndKind,
     findDefault,
     listByUser,

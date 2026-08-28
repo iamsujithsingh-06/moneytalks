@@ -4,6 +4,7 @@ import { useAuth } from "../../state/auth-context.js";
 import { Logo } from "../ui/Logo.js";
 import { LogoutIcon } from "../ui/icons.js";
 import { NAV_ITEMS } from "./nav.js";
+import { SyncStatus } from "./SyncStatus.js";
 
 const lingo =
   "rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-150 ";
@@ -91,6 +92,7 @@ function TopBar() {
           <Breadcrumb />
         </div>
         <div className="flex items-center gap-3">
+          <SyncStatus />
           <ActionHint />
         </div>
       </div>
