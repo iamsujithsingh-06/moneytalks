@@ -1,0 +1,29 @@
+{
+  "name": "moneytalks",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MoneyTalks - personal finance platform monorepo",
+  "type": "module",
+  "packageManager": "pnpm@11.20.0",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @moneytalks/api dev",
+    "build": "pnpm -r run build",
+    "typecheck": "pnpm -r run typecheck",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "test": "pnpm --filter @moneytalks/api test",
+    "test:watch": "pnpm --filter @moneytalks/api test:watch"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.24.0",
+    "@types/node": "^22.14.0",
+    "eslint": "^9.24.0",
+    "globals": "^16.0.0",
+    "prettier": "^3.5.3",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.29.0"
+  }
+}

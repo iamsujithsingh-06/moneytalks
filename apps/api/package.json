@@ -1,0 +1,42 @@
+{
+  "name": "@moneytalks/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/server.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "verify": "tsx scripts/verify-boot-shutdown.ts"
+  },
+  "dependencies": {
+    "@moneytalks/shared": "workspace:*",
+    "@moneytalks/types": "workspace:*",
+    "@moneytalks/validation": "workspace:*",
+    "@node-rs/argon2": "^2.0.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^5.1.0",
+    "helmet": "^8.1.0",
+    "jose": "^6.0.11",
+    "mongoose": "^8.16.0",
+    "pino": "^9.7.0",
+    "pino-http": "^10.5.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@moneytalks/config": "workspace:*",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.3",
+    "@types/node": "^22.14.0",
+    "@types/supertest": "^6.0.3",
+    "mongodb-memory-server": "^10.2.0",
+    "supertest": "^7.1.0",
+    "tsx": "^4.20.0",
+    "vitest": "^3.1.0"
+  }
+}
