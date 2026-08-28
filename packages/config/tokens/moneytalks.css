@@ -1,0 +1,85 @@
+:root {
+  /* Surfaces — dark-first, layered depth */
+  --mt-bg-canvas: #0a0a10;
+  --mt-bg-surface: #12121b;
+  --mt-bg-surface-raised: #1a1a27;
+
+  /* Primary — violet/purple brand accent */
+  --mt-accent-primary: #8b5cf6;
+  --mt-accent-primary-strong: #7c3aed;
+  --mt-accent-primary-soft: rgba(139, 92, 246, 0.16);
+
+  /* Secondary — teal/blue (financial/selected states) */
+  --mt-accent-secondary: #22d3ee;
+  --mt-accent-secondary-strong: #06b6d4;
+  --mt-accent-secondary-soft: rgba(34, 211, 238, 0.14);
+
+  /* Semantic — income/gains vs expense/risk */
+  --mt-positive: #34d399;
+  --mt-positive-soft: rgba(52, 211, 153, 0.14);
+  --mt-negative: #fb7185;
+  --mt-negative-soft: rgba(251, 113, 133, 0.14);
+  --mt-warning: #fbbf24;
+  --mt-warning-soft: rgba(251, 191, 36, 0.14);
+  --mt-info: #38bdf8;
+  --mt-info-soft: rgba(56, 189, 248, 0.14);
+
+  /* Text */
+  --mt-text-primary: #f3f4f8;
+  --mt-text-secondary: #a4a8b8;
+  --mt-text-muted: #6f7485;
+
+  /* Border */
+  --mt-border: #26263a;
+  --mt-border-strong: #33334d;
+
+  /* Input/control */
+  --mt-field-bg: #0e0e17;
+  --mt-field-placeholder: #575c6e;
+
+  /* Focus */
+  --mt-focus-ring: rgba(139, 92, 246, 0.5);
+
+  /* Status chips */
+  --mt-status-pending: #fbbf24;
+  --mt-status-confirmed: #34d399;
+  --mt-status-rejected: #fb7185;
+  --mt-status-duplicate: #a78bfa;
+
+  /* Radii — soft, rounded */
+  --mt-radius-sm: 8px;
+  --mt-radius-md: 12px;
+  --mt-radius-lg: 16px;
+  --mt-radius-xl: 20px;
+  --mt-radius-full: 9999px;
+
+  /* Shadows — soft depth, no harsh drop shadows */
+  --mt-shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --mt-shadow-card: 0 4px 20px rgba(0, 0, 0, 0.35);
+  --mt-shadow-pop: 0 12px 40px rgba(0, 0, 0, 0.5);
+
+  /* Spacing scale (1x = 4px) */
+  --mt-space-1: 4px;
+  --mt-space-2: 8px;
+  --mt-space-3: 12px;
+  --mt-space-4: 16px;
+  --mt-space-5: 20px;
+  --mt-space-6: 24px;
+  --mt-space-8: 32px;
+  --mt-space-10: 40px;
+  --mt-space-12: 48px;
+  --mt-space-16: 64px;
+
+  /* Typography */
+  --mt-font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mt-font-numeric: "Inter", ui-monospace, "SFMono-Regular", "SF Mono", Menlo, monospace;
+  --mt-text-xs: 0.75rem;
+  --mt-text-sm: 0.875rem;
+  --mt-text-base: 1rem;
+  --mt-text-lg: 1.125rem;
+  --mt-text-xl: 1.25rem;
+  --mt-text-2xl: 1.5rem;
+  --mt-text-3xl: 1.875rem;
+  --mt-text-4xl: 2.25rem;
+  --mt-text-5xl: 3rem;
+}

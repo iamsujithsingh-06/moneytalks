@@ -1,0 +1,40 @@
+{
+  "name": "@moneytalks/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.app.json && tsc -p tsconfig.node.json --noEmit && vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.app.json",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@moneytalks/shared": "workspace:*",
+    "@moneytalks/types": "workspace:*",
+    "@moneytalks/validation": "workspace:*",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-router-dom": "^7.6.0",
+    "recharts": "^2.15.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@moneytalks/config": "workspace:*",
+    "@tailwindcss/vite": "^4.1.0",
+    "@testing-library/jest-dom": "^6.6.0",
+    "@testing-library/react": "^16.2.0",
+    "@testing-library/user-event": "^14.6.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^4.4.0",
+    "jsdom": "^26.0.0",
+    "tailwindcss": "^4.1.0",
+    "typescript": "^5.8.3",
+    "vite": "^7.3.0",
+    "vitest": "^3.1.0"
+  }
+}
