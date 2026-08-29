@@ -1,11 +1,25 @@
 import { useState, type FormEvent } from "react";
 import { Navigate, useNavigate, useLocation } from "react-router-dom";
+import { passwordSchema } from "@moneytalks/validation";
 import { useAuth } from "../../state/auth-context.js";
 import { useAsyncTask } from "../../lib/use-api.js";
 import { Alert, LoadingBlock } from "../../components/ui/page.js";
 import { Field, Input } from "../../components/ui/forms.js";
 import { Button } from "../../components/ui/Button.js";
 import { AuthLayout, AuthLink } from "./AuthLayout.js";
+
+/** Human-friendly, specific message for a failed shared passwordSchema check. */
+function validatePassword(password: string): string | null {
+  const result = passwordSchema.safeParse(password);
+  if (result.success) return null;
+  const failed = new Set(result.error.issues.map((i) => i.message));
+  const missing: string[] = [];
+  if (failed.has("Password must be at least 12 characters")) missing.push("at least 12 characters");
+  if (failed.has("Password must contain at least one lowercase letter")) missing.push("a lowercase letter");
+  if (failed.has("Password must contain at least one uppercase letter")) missing.push("an uppercase letter");
+  if (failed.has("Password must contain at least one digit")) missing.push("a number");
+  return `Password must be ${missing.join(", ")}.`;
+}
 
 export function RegisterPage() {
   const { user, status, register } = useAuth();
@@ -29,12 +43,13 @@ export function RegisterPage() {
   function onSubmit(e: FormEvent) {
     e.preventDefault();
     setLocalError(null);
-    if (password.length < 8) {
-      setLocalError("Password must be at least 8 characters.");
-      return;
-    }
     if (password !== confirm) {
       setLocalError("Passwords do not match.");
+      return;
+    }
+    const pwError = validatePassword(password);
+    if (pwError) {
+      setLocalError(pwError);
       return;
     }
     void task.run(name, email, password);

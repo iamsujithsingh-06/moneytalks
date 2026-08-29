@@ -1,0 +1,6 @@
+{
+  "name": "SmsCapture",
+  "android": {
+    "src": "android"
+  }
+}

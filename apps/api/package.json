@@ -14,6 +14,7 @@
     "verify": "tsx scripts/verify-boot-shutdown.ts"
   },
   "dependencies": {
+    "@moneytalks/intelligence": "workspace:*",
     "@moneytalks/shared": "workspace:*",
     "@moneytalks/types": "workspace:*",
     "@moneytalks/validation": "workspace:*",

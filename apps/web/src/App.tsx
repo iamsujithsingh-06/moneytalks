@@ -8,6 +8,7 @@ import { DashboardPage } from "./pages/DashboardPage.js";
 import { TransactionsPage } from "./pages/TransactionsPage.js";
 import { BudgetsPage } from "./pages/BudgetsPage.js";
 import { AnalyticsPage } from "./pages/AnalyticsPage.js";
+import { InsightsPage } from "./pages/InsightsPage.js";
 import { SettingsPage } from "./pages/settings/SettingsPage.js";
 import { LoginPage } from "./pages/auth/LoginPage.js";
 import { RegisterPage } from "./pages/auth/RegisterPage.js";
@@ -44,6 +45,7 @@ export const router = createBrowserRouter([
       { path: "/transactions", element: <TransactionsPage /> },
       { path: "/budgets", element: <BudgetsPage /> },
       { path: "/analytics", element: <AnalyticsPage /> },
+      { path: "/insights", element: <InsightsPage /> },
       { path: "/settings", element: <SettingsPage /> },
     ],
   },

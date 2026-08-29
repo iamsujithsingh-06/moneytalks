@@ -3,6 +3,7 @@ import type {
   AnalyticsCashflowQuery,
   AnalyticsSummary,
   AnalyticsSummaryQuery,
+  AssistantTurn,
   BudgetCreateRequest,
   BudgetListQuery,
   BudgetPublic,
@@ -13,6 +14,7 @@ import type {
   CategoryPublic,
   CategoryUpdateRequest,
   DashboardSummary,
+  IntelligenceReport,
   PaymentMethodCreateRequest,
   PaymentMethodPublic,
   PaymentMethodUpdateRequest,
@@ -64,6 +66,11 @@ export interface DashboardApi {
   summary(): Promise<DashboardSummary>;
 }
 
+export interface IntelligenceApi {
+  report(): Promise<IntelligenceReport>;
+  assistant(question: string): Promise<AssistantTurn>;
+}
+
 export interface ApiResources {
   categories: CategoriesApi;
   paymentMethods: PaymentMethodsApi;
@@ -71,6 +78,7 @@ export interface ApiResources {
   budgets: BudgetsApi;
   analytics: AnalyticsApi;
   dashboard: DashboardApi;
+  intelligence: IntelligenceApi;
 }
 
 export function attachResources(client: ApiClient): ApiResources {
@@ -137,6 +145,15 @@ export function attachResources(client: ApiClient): ApiResources {
 
     dashboard: {
       summary: () => req<DashboardSummary>("/dashboard/summary"),
+    },
+
+    intelligence: {
+      report: () => req<IntelligenceReport>("/intelligence/report"),
+      assistant: (question) =>
+        req<AssistantTurn>("/intelligence/assistant", {
+          method: "POST",
+          body: { question },
+        }),
     },
   };
 }

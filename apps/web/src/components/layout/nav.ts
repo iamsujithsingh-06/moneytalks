@@ -3,6 +3,7 @@ import {
   AnalyticsIcon,
   BudgetsIcon,
   DashboardIcon,
+  InsightsIcon,
   SettingsIcon,
   TransactionsIcon,
 } from "../ui/icons.js";
@@ -18,5 +19,6 @@ export const NAV_ITEMS: NavItem[] = [
   { path: "/transactions", label: "Transactions", icon: TransactionsIcon },
   { path: "/budgets", label: "Budgets", icon: BudgetsIcon },
   { path: "/analytics", label: "Analytics", icon: AnalyticsIcon },
+  { path: "/insights", label: "Insights", icon: InsightsIcon },
   { path: "/settings", label: "Settings", icon: SettingsIcon },
 ];

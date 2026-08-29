@@ -54,6 +54,17 @@ export function AnalyticsPage() {
     api.analytics.categories({ type: "expense" }),
   );
 
+  const series = cashflow.data?.series ?? [];
+  const chartData = useMemo(
+    () =>
+      series.map((p) => ({
+        name: formatMonthKey(p.period),
+        income: p.income,
+        expense: p.expense,
+      })),
+    [series],
+  );
+
   if (summary.loading || cashflow.loading || breakdown.loading) {
     return <LoadingBlock label="Crunching your numbers…" />;
   }
@@ -72,18 +83,7 @@ export function AnalyticsPage() {
   }
 
   const s = summary.data;
-  const series = cashflow.data?.series ?? [];
   const items = breakdown.data?.items ?? [];
-
-  const chartData = useMemo(
-    () =>
-      series.map((p) => ({
-        name: formatMonthKey(p.period),
-        income: p.income,
-        expense: p.expense,
-      })),
-    [series],
-  );
 
   const totalExpense = items.reduce((m, i) => m + i.totalMinor, 0) || 1;
   const symbol = currencySymbol("INR");

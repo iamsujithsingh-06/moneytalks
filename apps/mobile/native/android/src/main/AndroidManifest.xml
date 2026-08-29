@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+        Capture entry point for transaction SMS (ADR-005). RECEIVE_SMS lets the
+        app receive broadcasts containing bank/UPI messages *only after* the user
+        grants it through an in-app disclosure with Play-policy justification.
+        Raw bodies never leave the device.
+    -->
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+    <uses-permission android:name="android.permission.READ_SMS" />
+</manifest>

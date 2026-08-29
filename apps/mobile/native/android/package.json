@@ -1,0 +1,14 @@
+{
+  "name": "@moneytalks/sms-capacitor-android",
+  "version": "0.1.0",
+  "description": "Capacitor Android plugin exposing native SMS capture (RECEIVE_SMS broadcast) to the MoneyTalks mobile PWA.",
+  "private": true,
+  "main": "dist/plugin.js",
+  "module": "dist/esm/index.js",
+  "types": "dist/esm/index.d.ts",
+  "capacitor": {
+    "android": {
+      "src": "android"
+    }
+  }
+}

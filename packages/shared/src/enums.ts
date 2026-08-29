@@ -123,3 +123,47 @@ export const AnalyticsGranularity = {
 
 export type AnalyticsGranularity =
   (typeof AnalyticsGranularity)[keyof typeof AnalyticsGranularity];
+
+/** Confidence label for a spending forecast (estimates are never facts). */
+export const ForecastConfidence = {
+  High: "high",
+  Medium: "medium",
+  Low: "low",
+  None: "none",
+} as const;
+
+export type ForecastConfidence =
+  (typeof ForecastConfidence)[keyof typeof ForecastConfidence];
+
+/** Detected recurrence frequency for a recurring-expense candidate. */
+export const RecurrenceFrequency = {
+  Weekly: "weekly",
+  Monthly: "monthly",
+  Yearly: "yearly",
+} as const;
+
+export type RecurrenceFrequency =
+  (typeof RecurrenceFrequency)[keyof typeof RecurrenceFrequency];
+
+/** Severity label for a flagged anomaly. */
+export const AnomalySeverity = {
+  Info: "info",
+  Warning: "warning",
+  High: "high",
+} as const;
+
+export type AnomalySeverity = (typeof AnomalySeverity)[keyof typeof AnomalySeverity];
+
+/** Isolated intents for the natural-language financial assistant. */
+export const AssistantIntent = {
+  TotalSpend: "total-spend",
+  BiggestCategories: "biggest-categories",
+  CategorySpend: "category-spend",
+  MonthComparison: "month-comparison",
+  BudgetStatus: "budget-status",
+  Trends: "trends",
+  Unsupported: "unsupported",
+} as const;
+
+export type AssistantIntent =
+  (typeof AssistantIntent)[keyof typeof AssistantIntent];

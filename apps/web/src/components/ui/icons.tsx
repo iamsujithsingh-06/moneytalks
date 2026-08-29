@@ -49,6 +49,14 @@ export const AnalyticsIcon = (p: IconProps) => (
   </svg>
 );
 
+export const InsightsIcon = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+    <path d="m4.9 4.9 2.1 2.1M17 17l2.1 2.1M19 4.9 16.9 7M7 17l-2.1 2.1" />
+    <circle cx="12" cy="12" r="4" />
+  </svg>
+);
+
 export const SettingsIcon = (p: IconProps) => (
   <svg {...base(p)}>
     <circle cx="12" cy="12" r="3" />

@@ -72,13 +72,18 @@ export interface SavingsGoalPublic {
   rev: number;
 }
 
-/** Minimal AI insight-card shape. The insights engine is a later phase; the
- * dashboard returns an empty array until then. */
+/** Minimal AI insight-card shape, shared by analytics and the Phase 9
+ * intelligence engine. The insights engine is a later phase; the dashboard
+ * returns an empty array until then. */
 export interface InsightCard {
   id: string;
+  /** Stable machine kind, e.g. `category-spend`, `income-vs-expense`,
+   * `month-over-month`, `high-category-spend`, `largest-categories`, `trend`. */
   kind: string;
   title: string;
   body: string;
+  /** Optional severity for styling. */
+  tone?: "info" | "positive" | "warning" | "negative";
 }
 
 import type { TransactionPublic, BudgetPublic } from "@moneytalks/types";

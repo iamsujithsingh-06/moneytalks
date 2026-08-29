@@ -1,0 +1,91 @@
+@import "@moneytalks/tokens";
+@import "tailwindcss";
+
+@theme {
+  --font-sans: var(--mt-font-sans);
+  --font-numeric: var(--mt-font-numeric);
+
+  --color-canvas: var(--mt-bg-canvas);
+  --color-surface: var(--mt-bg-surface);
+  --color-raised: var(--mt-bg-surface-raised);
+  --color-field: var(--mt-field-bg);
+
+  --color-primary: var(--mt-accent-primary);
+  --color-primary-strong: var(--mt-accent-primary-strong);
+  --color-primary-soft: var(--mt-accent-primary-soft);
+  --color-secondary: var(--mt-accent-secondary);
+  --color-secondary-soft: var(--mt-accent-secondary-soft);
+
+  --color-positive: var(--mt-positive);
+  --color-positive-soft: var(--mt-positive-soft);
+  --color-negative: var(--mt-negative);
+  --color-negative-soft: var(--mt-negative-soft);
+  --color-warning: var(--mt-warning);
+  --color-warning-soft: var(--mt-warning-soft);
+  --color-info: var(--mt-info);
+  --color-info-soft: var(--mt-info-soft);
+
+  --color-text-primary: var(--mt-text-primary);
+  --color-text-secondary: var(--mt-text-secondary);
+  --color-text-muted: var(--mt-text-muted);
+
+  --color-border: var(--mt-border);
+  --color-border-strong: var(--mt-border-strong);
+
+  --radius-sm: var(--mt-radius-sm);
+  --radius-md: var(--mt-radius-md);
+  --radius-lg: var(--mt-radius-lg);
+  --radius-xl: var(--mt-radius-xl);
+  --radius-full: var(--mt-radius-full);
+
+  --shadow-soft: var(--mt-shadow-soft);
+  --shadow-card: var(--mt-shadow-card);
+  --shadow-pop: var(--mt-shadow-pop);
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  * {
+    border-color: var(--mt-border);
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--mt-bg-canvas);
+    color: var(--mt-text-primary);
+    font-family: var(--mt-font-sans);
+    font-size: var(--mt-text-base);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Mobile-first: full-bleed canvas, safe-area aware */
+  #root {
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px));
+  }
+
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+    }
+  }
+}

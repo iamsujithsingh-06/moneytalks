@@ -15,6 +15,8 @@ import { createDashboardRouter } from "../modules/dashboard/routes.js";
 import type { DashboardRouterDeps } from "../modules/dashboard/routes.js";
 import { createSyncRouter } from "../modules/sync/routes.js";
 import type { SyncRouterDeps } from "../modules/sync/routes.js";
+import { createIntelligenceRouter } from "../modules/intelligence/routes.js";
+import type { IntelligenceRouterDeps } from "../modules/intelligence/routes.js";
 
 export interface V1RouterDeps {
   auth: AuthRouterDeps;
@@ -25,6 +27,7 @@ export interface V1RouterDeps {
   analytics: AnalyticsRouterDeps;
   dashboard: DashboardRouterDeps;
   sync: SyncRouterDeps;
+  intelligence: IntelligenceRouterDeps;
 }
 
 export function createV1Router(deps: V1RouterDeps): Router {
@@ -40,5 +43,6 @@ export function createV1Router(deps: V1RouterDeps): Router {
   router.use("/analytics", createAnalyticsRouter(deps.analytics));
   router.use("/dashboard", createDashboardRouter(deps.dashboard));
   router.use("/sync", createSyncRouter(deps.sync));
+  router.use("/intelligence", createIntelligenceRouter(deps.intelligence));
   return router;
 }

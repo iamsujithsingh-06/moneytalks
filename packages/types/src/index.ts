@@ -3,4 +3,5 @@ export * from "./transactions.js";
 export * from "./categories.js";
 export * from "./budgets.js";
 export * from "./analytics.js";
+export * from "./intelligence.js";
 export * from "./sync.js";

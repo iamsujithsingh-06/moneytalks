@@ -24,6 +24,8 @@ import { createDashboardController } from "./modules/dashboard/controller.js";
 import { DashboardService } from "./modules/dashboard/service.js";
 import { createSyncController } from "./modules/sync/controller.js";
 import { SyncService } from "./modules/sync/service.js";
+import { createIntelligenceController } from "./modules/intelligence/controller.js";
+import { IntelligenceService } from "./modules/intelligence/service.js";
 import { SlidingWindowRateLimiter } from "./lib/rate-limiter.js";
 import type { RateLimitDeps } from "./middlewares/rate-limit.js";
 
@@ -46,6 +48,8 @@ export interface AppDeps {
   dashboardService?: DashboardService;
   /** Injectable for tests. When omitted, a default service is built. */
   syncService?: SyncService;
+  /** Injectable for tests. When omitted, a default service is built. */
+  intelligenceService?: IntelligenceService;
   /** Injectable for tests. When omitted, limiters are built from config. */
   rateLimiters?: { auth: RateLimitDeps; register: RateLimitDeps };
   /**
@@ -162,6 +166,16 @@ export function createApp(deps: AppDeps): Express {
 
   const syncController = createSyncController(syncService);
 
+  const intelligenceService =
+    deps.intelligenceService ??
+    new IntelligenceService({
+      logger,
+    });
+
+  const intelligenceController = createIntelligenceController(
+    intelligenceService,
+  );
+
   const app = express();
   app.disable("x-powered-by");
   app.set("trust proxy", config.env === "production");
@@ -184,6 +198,7 @@ export function createApp(deps: AppDeps): Express {
       analytics: { controller: analyticsController, config },
       dashboard: { controller: dashboardController, config },
       sync: { controller: syncController, config },
+      intelligence: { controller: intelligenceController, config },
     }),
   );
 

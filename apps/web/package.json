@@ -13,6 +13,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@moneytalks/offline": "workspace:*",
     "@moneytalks/shared": "workspace:*",
     "@moneytalks/types": "workspace:*",
     "@moneytalks/validation": "workspace:*",
