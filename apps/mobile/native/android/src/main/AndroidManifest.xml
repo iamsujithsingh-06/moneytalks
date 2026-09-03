@@ -5,8 +5,27 @@
         Capture entry point for transaction SMS (ADR-005). RECEIVE_SMS lets the
         app receive broadcasts containing bank/UPI messages *only after* the user
         grants it through an in-app disclosure with Play-policy justification.
-        Raw bodies never leave the device.
+        Raw bodies never leave the device. READ_SMS is intentionally NOT declared:
+        the app never reads the historical SMS inbox, only incoming broadcasts.
     -->
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
-    <uses-permission android:name="android.permission.READ_SMS" />
+
+    <application>
+        <!--
+            Delivers incoming bank/UPI SMS broadcasts to the capture pipeline
+            even when no WebView is running. RECEIVE_SMS is still required and
+            requested at runtime via the in-app disclosure; the receiver only
+            acts when that permission is granted. SmsCaptureReceiver is the
+            single manifest entry point and feeds SmsCapturePlugin.dispatchSms.
+        -->
+        <receiver
+            android:name="com.moneytalks.sms.SmsCaptureReceiver"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="android.permission.BROADCAST_SMS">
+            <intent-filter android:priority="100">
+                <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+            </intent-filter>
+        </receiver>
+    </application>
 </manifest>

@@ -4,19 +4,35 @@ Per ADR-005, the **native Android layer owns inbox SMS capture**. The WebView PW
 the inbox; it consumes a clean `SmsCaptureSource` boundary (see
 `apps/mobile/src/lib/sms/capture/*`) that maps onto this plugin.
 
-This directory is **Gradle-independent scaffolding** — it is not built by the pnpm workspace
-graph. It is the packaged source you wire into the Capacitor-generated Android project when you
-run `npx cap add android` in the mobile app.
+## How it is wired
+
+This directory is a **pnpm workspace package** (`@moneytalks/sms-capacitor-android`), declared
+in `pnpm-workspace.yaml` and listed as a dependency of `apps/mobile`. When you run:
+
+```bash
+pnpm install                       # links the workspace package
+npx cap sync android               # discovers and registers the plugin
+```
+
+Capacitor's CLI reads the `capacitor` field in `package.json`, adds the module to
+`android/capacitor.settings.gradle`, includes it as an `implementation project(...)`
+dependency in `android/app/capacitor.build.gradle`, and merges the plugin's
+`@CapacitorPlugin` classpath into `android/app/src/main/assets/capacitor.plugins.json`.
+The app's merged manifest also picks up `RECEIVE_SMS` / `READ_SMS` permissions declared in
+`src/main/AndroidManifest.xml`.
+
+**Do not** manually edit `android/capacitor.settings.gradle` or
+`android/app/capacitor.build.gradle` — they are overwritten on every `cap sync`.
 
 ## JS <-> native contract
 
-| JS (bridge)                | Native plugin method          | Notes                                             |
-| -------------------------- | ----------------------------- | ------------------------------------------------- |
-| `getPermission()`          | `SmsCapture.getPermission()`  | Returns `{ state: "granted" \| "prompt" }`        |
-| `requestPermission()`      | `SmsCapture.requestPermission()` | In-app disclosure + Play justification required |
-| `start()` -> `startCapture()` | `SmsCapture.startCapture()`  | Retains the call, registers `SMS_RECEIVED` receiver |
-| `stop()` -> `stopCapture()`   | `SmsCapture.stopCapture()`    | Unregisters the receiver                          |
-| `addListener("message", fn)` | async push events             | `{ sender, body, receivedAt }`                    |
+| JS (bridge)                   | Native plugin method                | Notes                                                  |
+| ----------------------------- | ----------------------------------- | ------------------------------------------------------ |
+| `getPermission()`             | `SmsCapture.getPermission()`        | Returns `{ state: "granted" | "prompt" }`              |
+| `requestPermission()`         | `SmsCapture.requestPermission()`    | In-app disclosure + Play justification required         |
+| `start()` → `startCapture()`  | `SmsCapture.startCapture()`         | Retains the call, registers `SMS_RECEIVED` receiver     |
+| `stop()` → `stopCapture()`    | `SmsCapture.stopCapture()`          | Unregisters the receiver                                |
+| `addListener("message", fn)`  | async push events                   | `{ sender, body, receivedAt }`                          |
 
 ## JS wiring
 
@@ -34,13 +50,20 @@ messages.
 
 ## Build
 
-Standalone (when scaffolding the Android shell):
+The plugin compiles inside the Capacitor-generated Android project. It targets
+**compileSdk 36**, **minSdk 24**, **JDK 21** and depends on the app's
+`:capacitor-android` project (not a standalone Maven artifact). The build uses
+Kotlin 2.0.21 and `androidx.core` from the shell's `variables.gradle`.
+
+To rebuild the app APK, run from `apps/mobile`:
 
 ```bash
-# inside the generated Capacitor android/ module, register the plugin:
-#   include ':moneytalks-sms-capacitor'
-#   project(':moneytalks-sms-capacitor').projectDir = new File('<path>/native/android')
+npx cap sync android
+cd android && ./gradlew assembleDebug
 ```
 
-Manifest permissions (`RECEIVE_SMS`, `READ_SMS`) and the Capacitor `SmsCapture` registration are
-declared in `src/main/AndroidManifest.xml` and `capacitor.plugin.json`.
+### Timestamp note
+
+The plugin emits `receivedAt` as an ISO-8601 UTC string built with
+`java.text.SimpleDateFormat` (not `java.time.Instant`) so the broadcast receiver
+works without core-library desugaring on all devices ≥ API 24.

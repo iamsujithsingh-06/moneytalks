@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clearAll } from "@moneytalks/offline";
+import { clearAll, offlineStore } from "@moneytalks/offline";
 import { clearDrafts, listDrafts } from "../sms-store.js";
 import {
   SmsCaptureBridge,
   CapacitorSmsCaptureSource,
+  createDefaultCaptureBridge,
   UNSAFE_ENV_REASON,
   type SmsCaptureSource,
 } from "./index.js";
@@ -67,21 +68,65 @@ describe("SmsCaptureBridge", () => {
     const bridge = new SmsCaptureBridge({ sources: [source] });
     await bridge.start();
 
-    const pendingBefore = (await listDrafts("pending")).length;
     (source as unknown as { push: (m: SmsMessage) => void }).push(sms(UPI_DEBIT));
     await vi.waitFor(async () => {
-      expect((await listDrafts("pending")).length).toBe(pendingBefore + 1);
+      expect((await offlineStore.list("transactions")).length).toBeGreaterThan(0);
     });
 
-    const list = await listDrafts("pending");
-    expect(list[0]?.draft?.upiRef).toBe("417281920347");
+    // High-confidence messages are committed straight to the ledger (no review).
+    expect(await listDrafts("pending")).toHaveLength(0);
+    const txs = (await offlineStore.list("transactions")) as unknown as Array<{
+      smsRef?: { upiRef?: string };
+    }>;
+    expect(txs[0]?.smsRef?.upiRef).toBe("417281920347");
+    await bridge.stop();
+  });
+
+  it("subscribes a source that becomes available on a later start (app resume/reopen)", async () => {
+    let available = false;
+    let push: ((m: SmsMessage) => void) | null = null;
+    const source = {
+      get info() {
+        return {
+          id: "late",
+          kind: "native" as const,
+          label: "Late",
+          available,
+          reason: null,
+        };
+      },
+      getPermission: async () => ({ state: "prompt" }),
+      requestPermission: async () => ({ state: "prompt" }),
+      subscribe: (h: (m: SmsMessage) => void) => {
+        push = h;
+        return () => undefined;
+      },
+      detach: async () => undefined,
+    } as unknown as SmsCaptureSource;
+
+    const bridge = new SmsCaptureBridge({ sources: [source] });
+    await bridge.start();
+    expect(push).toBeNull();
+
+    // Simulate the Capacitor bridge/plugin proxy becoming ready, then a resume
+    // re-driving start(): the now-available source must be subscribed.
+    available = true;
+    await bridge.start();
+    expect(push).not.toBeNull();
+
+    const pendingBefore = (await listDrafts("pending")).length;
+    push!(sms(UPI_DEBIT));
+    await vi.waitFor(async () => {
+      expect((await offlineStore.list("transactions")).length).toBeGreaterThan(0);
+    });
+    // Auto-committed straight to the ledger; nothing left in review.
+    expect(await listDrafts("pending")).toHaveLength(pendingBefore);
     await bridge.stop();
   });
 
   it("ingestManual runs a message through the pipeline (paste fallback)", async () => {
     const bridge = new SmsCaptureBridge({ sources: [] });
-    const result = await bridge.ingestManual(sms(UPI_DEBIT));
-    expect(result.captured).toBe(true);
+    const result = await bridge.ingestManual(sms(UPI_DEBIT));    expect(result.captured).toBe(true);
     expect(result.record.discipline).toBe("transaction");
   });
 
@@ -130,7 +175,7 @@ describe("CapacitorSmsCaptureSource", () => {
       requestPermission: vi.fn(async () => ({ state: "prompt" })),
       startCapture: vi.fn(async () => undefined),
       stopCapture: vi.fn(async () => undefined),
-      addListener: vi.fn(async (_event: string, fn: (d: { body: string }) => void) => {
+      addListener: vi.fn((_event: string, fn: (d: { body: string }) => void) => {
         listeners.push(fn);
         return { remove: vi.fn() };
       }),
@@ -147,6 +192,8 @@ describe("CapacitorSmsCaptureSource", () => {
     const received: SmsMessage[] = [];
     const unsub = src.subscribe((m) => received.push(m));
     expect(listeners).toHaveLength(1);
+    // `addListener` returns the listener handle synchronously, and
+    // `startCapture` (which flushes queued messages) must run immediately after.
     expect(plugin.startCapture).toHaveBeenCalled();
 
     listeners[0]!({ body: UPI_DEBIT, sender: "VM-HDFCBK" });
@@ -161,7 +208,7 @@ describe("CapacitorSmsCaptureSource", () => {
   it("ignores messages with no body", async () => {
     const listeners: Array<(d: { body?: string }) => void> = [];
     setupGlobalCapacitor({
-      addListener: async (_e: string, fn: (d: { body?: string }) => void) => {
+      addListener: (_e: string, fn: (d: { body?: string }) => void) => {
         listeners.push(fn);
         return { remove: () => undefined };
       },
@@ -178,5 +225,39 @@ describe("CapacitorSmsCaptureSource", () => {
     const src = new CapacitorSmsCaptureSource();
     const unsub = src.subscribe(() => undefined);
     expect(() => unsub()).not.toThrow();
+  });
+
+  it("passes through receivedAt from the native plugin and falls back to now when missing", async () => {
+    const listeners: Array<(d: { body: string; sender?: string; receivedAt?: string }) => void> = [];
+    setupGlobalCapacitor({
+      addListener: (_e: string, fn: (d: { body: string; sender?: string; receivedAt?: string }) => void) => {
+        listeners.push(fn);
+        return { remove: () => undefined };
+      },
+      startCapture: async () => undefined,
+    });
+
+    const src = new CapacitorSmsCaptureSource();
+    const received: SmsMessage[] = [];
+    src.subscribe((m) => received.push(m));
+
+    const nativeTs = "2026-08-15T10:30:00.000Z";
+    listeners[0]!({ body: "Hello", sender: "+1", receivedAt: nativeTs });
+    expect(received[0]!.receivedAt).toBe(nativeTs);
+
+    listeners[0]!({ body: "No timestamp", sender: "+1" });
+    expect(received[1]!.receivedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+});
+
+describe("createDefaultCaptureBridge", () => {
+  it("includes a native SmsCaptureSource with id 'native'", () => {
+    clearCapacitor();
+    const bridge = createDefaultCaptureBridge();
+    const state = bridge.getSnapshot();
+    expect(state.sources).toHaveLength(1);
+    const native = state.sources[0]!;
+    expect(native.id).toBe("native");
+    expect(native.kind).toBe("native");
   });
 });

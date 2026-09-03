@@ -1,6 +1,7 @@
 packages:
   - "apps/*"
   - "packages/*"
+  - "apps/mobile/native/android"
 
 allowBuilds:
   esbuild: true

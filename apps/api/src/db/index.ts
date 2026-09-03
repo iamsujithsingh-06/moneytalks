@@ -8,6 +8,7 @@ export { AuditLogModel } from "./models/audit-log.js";
 export { TransactionModel } from "./models/transaction.js";
 export { CategoryModel } from "./models/category.js";
 export { PaymentMethodModel } from "./models/payment-method.js";
+export { SettingsModel } from "./models/settings.js";
 export { BudgetModel } from "./models/budget.js";
 export { SyncRecordModel } from "./models/sync-record.js";
 

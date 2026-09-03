@@ -17,32 +17,35 @@ import { createSyncRouter } from "../modules/sync/routes.js";
 import type { SyncRouterDeps } from "../modules/sync/routes.js";
 import { createIntelligenceRouter } from "../modules/intelligence/routes.js";
 import type { IntelligenceRouterDeps } from "../modules/intelligence/routes.js";
+import { rateLimitByIp, type RateLimitDeps } from "../middlewares/rate-limit.js";
 
 export interface V1RouterDeps {
-  auth: AuthRouterDeps;
-  transactions: TransactionsRouterDeps;
-  categories: CategoriesRouterDeps;
-  paymentMethods: PaymentMethodsRouterDeps;
-  budgets: BudgetsRouterDeps;
-  analytics: AnalyticsRouterDeps;
-  dashboard: DashboardRouterDeps;
-  sync: SyncRouterDeps;
-  intelligence: IntelligenceRouterDeps;
+  auth: AuthRouterDeps & { general: RateLimitDeps };
+  transactions: TransactionsRouterDeps & { general: RateLimitDeps };
+  categories: CategoriesRouterDeps & { general: RateLimitDeps };
+  paymentMethods: PaymentMethodsRouterDeps & { general: RateLimitDeps };
+  budgets: BudgetsRouterDeps & { general: RateLimitDeps };
+  analytics: AnalyticsRouterDeps & { general: RateLimitDeps };
+  dashboard: DashboardRouterDeps & { general: RateLimitDeps };
+  sync: SyncRouterDeps & { general: RateLimitDeps };
+  intelligence: IntelligenceRouterDeps & { general: RateLimitDeps };
 }
 
 export function createV1Router(deps: V1RouterDeps): Router {
   const router = Router();
+  const throttle = rateLimitByIp(deps.auth.general);
   router.use("/auth", createAuthRouter(deps.auth));
-  router.use("/transactions", createTransactionsRouter(deps.transactions));
-  router.use("/categories", createCategoriesRouter(deps.categories));
+  router.use("/transactions", throttle, createTransactionsRouter(deps.transactions));
+  router.use("/categories", throttle, createCategoriesRouter(deps.categories));
   router.use(
     "/payment-methods",
+    throttle,
     createPaymentMethodsRouter(deps.paymentMethods),
   );
-  router.use("/budgets", createBudgetsRouter(deps.budgets));
-  router.use("/analytics", createAnalyticsRouter(deps.analytics));
-  router.use("/dashboard", createDashboardRouter(deps.dashboard));
-  router.use("/sync", createSyncRouter(deps.sync));
-  router.use("/intelligence", createIntelligenceRouter(deps.intelligence));
+  router.use("/budgets", throttle, createBudgetsRouter(deps.budgets));
+  router.use("/analytics", throttle, createAnalyticsRouter(deps.analytics));
+  router.use("/dashboard", throttle, createDashboardRouter(deps.dashboard));
+  router.use("/sync", throttle, createSyncRouter(deps.sync));
+  router.use("/intelligence", throttle, createIntelligenceRouter(deps.intelligence));
   return router;
 }

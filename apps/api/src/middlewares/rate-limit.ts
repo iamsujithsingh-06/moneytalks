@@ -26,6 +26,7 @@ export function rateLimitByIp(limit: RateLimitDeps): RequestHandler {
 export function createRateLimiters(config: AppConfig): {
   auth: RateLimitDeps;
   register: RateLimitDeps;
+  general: RateLimitDeps;
 } {
   const windowMs = 60_000;
   return {
@@ -41,6 +42,13 @@ export function createRateLimiters(config: AppConfig): {
       limiter: new SlidingWindowRateLimiter({
         windowMs,
         max: config.rateLimit.registerPerMinute,
+      }),
+    },
+    general: {
+      enabled: config.rateLimit.enabled,
+      limiter: new SlidingWindowRateLimiter({
+        windowMs,
+        max: config.rateLimit.generalPerMinute,
       }),
     },
   };

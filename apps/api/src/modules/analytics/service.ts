@@ -21,6 +21,10 @@ import {
   type CategoryRepository,
 } from "../categories/repository.js";
 import {
+  settingsRepository,
+  type SettingsRepository,
+} from "../settings/repository.js";
+import {
   analyticsRepository,
   type AnalyticsRepository,
   type AnalyticsTransaction,
@@ -30,6 +34,7 @@ export interface AnalyticsServiceDeps {
   logger: AppLogger;
   repository?: AnalyticsRepository;
   categoryRepository?: CategoryRepository;
+  settingsRepository?: SettingsRepository;
 }
 
 const INCOME_TYPES = new Set(["income", "refund"]);
@@ -140,10 +145,12 @@ function buildSeries(
 export class AnalyticsService {
   private readonly repository: AnalyticsRepository;
   private readonly categoryRepo: CategoryRepository;
+  private readonly settingsRepo: SettingsRepository;
 
   constructor(private readonly deps: AnalyticsServiceDeps) {
     this.repository = deps.repository ?? analyticsRepository;
     this.categoryRepo = deps.categoryRepository ?? categoryRepository;
+    this.settingsRepo = deps.settingsRepository ?? settingsRepository;
   }
 
   async summary(
@@ -216,7 +223,11 @@ export class AnalyticsService {
   }
 
   async balance(userId: string): Promise<number> {
-    return this.repository.balance(userId);
+    const [txnBalance, initial] = await Promise.all([
+      this.repository.balance(userId),
+      this.settingsRepo.getInitialBalanceMinor(userId),
+    ]);
+    return txnBalance + initial;
   }
 
   /** Income/expense totals within an explicit inclusive window (minor units). */

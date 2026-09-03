@@ -119,6 +119,17 @@ describe("Dashboard API", () => {
       .expect(201);
   }
 
+  function push(
+    accessToken: string,
+    ops: unknown[],
+    deviceId = "dashboard-test",
+  ) {
+    return request(app)
+      .post("/api/v1/sync/push")
+      .set(withAuth(accessToken))
+      .send({ deviceId, ops });
+  }
+
   it("rejects requests without a token", async () => {
     const res = await request(app).get("/api/v1/dashboard/summary");
     expect(res.status).toBe(401);
@@ -181,5 +192,64 @@ describe("Dashboard API", () => {
     });
     expect(data.goals).toEqual([]);
     expect(data.insights).toEqual([]);
+  });
+
+  it("includes the synced initial balance in the dashboard balance", async () => {
+    const { accessToken } = await registerAndLogin("dash-balance@example.com");
+    await createTx(accessToken, { type: "income", amountMinor: 50_000, transactionDate: "2026-01-05" });
+    await createTx(accessToken, { type: "expense", amountMinor: 10_000, transactionDate: currentDay(6) });
+
+    await push(accessToken, [
+      {
+        entity: "settings",
+        op: "create",
+        clientId: randomUUID(),
+        payload: { initialBalanceMinor: 250_000 },
+      },
+    ]).expect(200);
+
+    const res = await request(app)
+      .get("/api/v1/dashboard/summary")
+      .set(withAuth(accessToken))
+      .expect(200);
+
+    // Balance = Initial Balance + Income − Expenses.
+    expect(res.body.data.balance).toBe(250_000 + 50_000 - 10_000);
+    expect(res.body.data.monthExpense).toBe(10_000);
+  });
+
+  it("isolates the dashboard overview between users (no cross-user leakage)", async () => {
+    const alice = await registerAndLogin("dash-alice@example.com");
+    const bob = await registerAndLogin("dash-bob@example.com");
+
+    // Alice owns transactions, categories, budgets and an initial balance.
+    const food = await createCategory(alice.accessToken, "expense", "Food");
+    await createTx(alice.accessToken, { type: "income", amountMinor: 50_000, transactionDate: "2026-01-05" });
+    await createTx(alice.accessToken, { type: "expense", amountMinor: 5_000, categoryId: food.id, merchant: "Alice Cafe", transactionDate: currentDay(6) });
+    await createBudget(alice.accessToken, food.id);
+
+    const aliceRes = await request(app)
+      .get("/api/v1/dashboard/summary")
+      .set(withAuth(alice.accessToken))
+      .expect(200);
+    expect(aliceRes.body.data.balance).toBe(45_000);
+    expect(aliceRes.body.data.topCategories).toHaveLength(1);
+
+    // Bob's dashboard must be entirely unaffected by Alice's data.
+    const bobRes = await request(app)
+      .get("/api/v1/dashboard/summary")
+      .set(withAuth(bob.accessToken))
+      .expect(200);
+    expect(bobRes.body.data).toMatchObject({
+      balance: 0,
+      monthIncome: 0,
+      monthExpense: 0,
+      net: 0,
+      topCategories: [],
+      recent: [],
+      budgets: [],
+      goals: [],
+      insights: [],
+    });
   });
 });

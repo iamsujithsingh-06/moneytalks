@@ -1,22 +1,30 @@
-apply plugin: 'com.android.library'
-
+// MoneyTalks SMS capture — native Android (Capacitor).
+//
+// This plugin is wired into the app as a Capacitor plugin: `pnpm install` links
+// it into apps/mobile/node_modules and `npx cap sync android` registers it in
+// the generated Android project (`include ':moneytalks-sms-capacitor-android'`
+// + `implementation project(...)`). It builds within the Capacitor-generated
+// shell, so SDK/Java versions track the app's `variables.gradle` (SDK 36,
+// Java 21) — do not pin older values here.
 buildscript {
     repositories {
         google()
         mavenCentral()
     }
     dependencies {
-        classpath 'com.android.tools.build:gradle:8.2.1'
-        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22'
+        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.0.21'
     }
 }
 
+apply plugin: 'com.android.library'
+apply plugin: 'org.jetbrains.kotlin.android'
+
 android {
     namespace "com.moneytalks.sms"
-    compileSdk rootProject.hasProperty('compileSdkVersion') ? rootProject.ext.compileSdkVersion : 34
+    compileSdk project.hasProperty('compileSdkVersion') ? rootProject.ext.compileSdkVersion : 36
     defaultConfig {
-        minSdkVersion rootProject.hasProperty('minSdkVersion') ? rootProject.ext.minSdkVersion : 23
-        targetSdkVersion rootProject.hasProperty('targetSdkVersion') ? rootProject.ext.targetSdkVersion : 34
+        minSdkVersion project.hasProperty('minSdkVersion') ? rootProject.ext.minSdkVersion : 24
+        targetSdkVersion project.hasProperty('targetSdkVersion') ? rootProject.ext.targetSdkVersion : 36
         versionCode 1
         versionName "0.1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
@@ -27,8 +35,11 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_17
-        targetCompatibility JavaVersion.VERSION_17
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
+    }
+    kotlinOptions {
+        jvmTarget = '21'
     }
 }
 
@@ -38,6 +49,8 @@ repositories {
 }
 
 dependencies {
-    implementation 'com.getcapacitor:android:5.7.0'
-    implementation 'androidx.core:core-ktx:1.12.0'
+    implementation fileTree(dir: 'libs', include: ['*.jar'])
+    // Capacitor APIs are provided by the app's `:capacitor-android` project.
+    implementation project(':capacitor-android')
+    implementation "androidx.core:core:${rootProject.hasProperty('androidxCoreVersion') ? rootProject.ext.androidxCoreVersion : '1.13.1'}"
 }

@@ -3,6 +3,7 @@ import type { SyncEntity } from "@moneytalks/types";
 import { TransactionModel } from "../../db/models/transaction.js";
 import { CategoryModel } from "../../db/models/category.js";
 import { PaymentMethodModel } from "../../db/models/payment-method.js";
+import { SettingsModel } from "../../db/models/settings.js";
 import { SyncRecordModel } from "../../db/models/sync-record.js";
 
 export interface Cursor {
@@ -160,6 +161,14 @@ export function createSyncRepository(): SyncRepository {
       }
       case "payment-methods": {
         const docs = await PaymentMethodModel.find(filter as never)
+          .sort(sort)
+          .limit(limit + 1)
+          .lean()
+          .exec();
+        return makePage(docs as never[], "_id", "clientId", "rev", "updatedAt", "deletedAt", limit);
+      }
+      case "settings": {
+        const docs = await SettingsModel.find(filter as never)
           .sort(sort)
           .limit(limit + 1)
           .lean()

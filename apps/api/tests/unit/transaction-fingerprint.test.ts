@@ -74,3 +74,41 @@ describe("buildTransactionFingerprint", () => {
     ).toThrow(RangeError);
   });
 });
+
+describe("buildTransactionFingerprint — Indian Bank INR 5.00 (SMS)", () => {
+  // Exact parsed values (via @moneytalks/sms) for the two real Indian Bank
+  // ₹5 SMS messages on 2026-09-02. Incoming party goes to counterparty (so
+  // merchant is null); outgoing party is merchant. Both source: "sms".
+  const incomingCredit = {
+    amountMinor: 500,
+    currency: "INR",
+    transactionDate: "2026-09-02",
+    merchant: undefined,
+    source: "sms",
+  };
+  const outgoingDebit = {
+    amountMinor: 500,
+    currency: "INR",
+    transactionDate: "2026-09-02",
+    merchant: "HARISH RAGAV",
+    source: "sms",
+  };
+
+  it("A: incoming credit and outgoing debit are NOT considered duplicates (distinct fingerprints)", () => {
+    const creditFp = buildTransactionFingerprint(incomingCredit);
+    const debitFp = buildTransactionFingerprint(outgoingDebit);
+    expect(creditFp).not.toBe(debitFp);
+  });
+
+  it("B: re-delivery of the exact same SMS yields the SAME fingerprint (genuine duplicate preserved)", () => {
+    expect(buildTransactionFingerprint(outgoingDebit)).toBe(
+      buildTransactionFingerprint({ ...outgoingDebit, merchant: "  HARISH RAGAV  " }),
+    );
+  });
+
+  it("A: merchant casing does not make a genuine outgoing duplicate slip through", () => {
+    expect(buildTransactionFingerprint({ ...outgoingDebit, merchant: "harish ragav" })).toBe(
+      buildTransactionFingerprint(outgoingDebit),
+    );
+  });
+});

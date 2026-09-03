@@ -28,3 +28,12 @@ Thumbs.db
 
 # turbo
 .turbo/
+
+# Gradle generated files
+.gradle/
+**/.gradle/
+
+
+# Gradle distribution archives
+apps/mobile/android/gradle-*.zip
+

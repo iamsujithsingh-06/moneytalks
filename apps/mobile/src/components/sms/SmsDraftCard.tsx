@@ -39,6 +39,7 @@ export function SmsDraftCard({
 
   const signed = signedMinor(draft.type, draft.amountMinor);
   const merchant = draft.merchant ?? draft.counterparty ?? "Unknown payee";
+  const refNumber = draft.upiRef ?? draft.bankRef;
 
   return (
     <div className="rounded-xl border border-border bg-surface p-4 shadow-card">
@@ -61,13 +62,16 @@ export function SmsDraftCard({
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate text-base font-medium text-text-primary">{merchant}</p>
-          {draft.counterparty && draft.counterparty !== draft.merchant ? (
+          {draft.merchant && draft.counterparty && draft.counterparty !== draft.merchant ? (
             <p className="truncate text-sm text-text-muted">{draft.counterparty}</p>
           ) : null}
           <p className="mt-1 text-sm text-text-muted">
             {formatDate(draft.transactionDate)}
             {draft.accountRef ? ` · ${draft.accountRef}` : ""}
           </p>
+          {refNumber ? (
+            <p className="mt-0.5 font-mono text-sm text-text-muted">RRN {refNumber}</p>
+          ) : null}
         </div>
         <div className="shrink-0 text-right">
           <Money

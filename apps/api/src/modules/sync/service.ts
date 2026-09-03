@@ -1,6 +1,7 @@
 import type {
   CategoryPublic,
   PaymentMethodPublic,
+  SettingsPublic,
   SyncChange,
   SyncChangesResult,
   SyncEntity,
@@ -14,9 +15,11 @@ import type {
 import {
   createCategorySchema,
   createPaymentMethodSchema,
+  createSettingsSchema,
   createTransactionSchema,
   updateCategorySchema,
   updatePaymentMethodSchema,
+  updateSettingsSchema,
   updateTransactionSchema,
 } from "@moneytalks/validation";
 import type { AppLogger } from "../../lib/logger.js";
@@ -24,6 +27,7 @@ import { validationError } from "../../lib/errors.js";
 import type { TransactionService } from "../transactions/service.js";
 import type { CategoryService } from "../categories/service.js";
 import type { PaymentMethodService } from "../payment-methods/service.js";
+import type { SettingsService } from "../settings/service.js";
 import {
   createSyncRepository,
   encodeCursor,
@@ -39,6 +43,10 @@ import {
   type PaymentMethodRepository,
 } from "../payment-methods/repository.js";
 import {
+  settingsRepository,
+  type SettingsRepository,
+} from "../settings/repository.js";
+import {
   transactionRepository,
   type TransactionRepository,
 } from "../transactions/repository.js";
@@ -47,17 +55,119 @@ export const SYNC_ENTITY_LIST: SyncEntity[] = [
   "transactions",
   "categories",
   "payment-methods",
+  "settings",
 ];
+
+/**
+ * Fields accepted by each entity's create/update schema. Sync pushes carry the
+ * locally-stored document (including server-managed fields like `id`, `rev`,
+ * `createdAt`, `updatedAt` and derived output fields) rather than a minimal
+ * create/update payload. We therefore project the payload down to exactly the
+ * fields each strict schema accepts, dropping server-managed/derived fields and
+ * `null` values for optional fields, before validation.
+ */
+const CREATE_FIELDS: Record<SyncEntity, readonly string[]> = {
+  transactions: [
+    "clientId",
+    "type",
+    "amountMinor",
+    "currency",
+    "transactionDate",
+    "source",
+    "status",
+    "merchant",
+    "counterparty",
+    "note",
+    "tags",
+    "categoryId",
+    "paymentMethodId",
+    "accountRef",
+  ],
+  categories: [
+    "clientId",
+    "name",
+    "type",
+    "icon",
+    "color",
+    "parentId",
+    "sortOrder",
+    "isDefault",
+  ],
+  "payment-methods": [
+    "clientId",
+    "name",
+    "kind",
+    "provider",
+    "maskedNumber",
+    "accountRef",
+    "isDefault",
+  ],
+  settings: ["clientId", "initialBalanceMinor"],
+};
+
+const UPDATE_FIELDS: Record<SyncEntity, readonly string[]> = {
+  transactions: [
+    "type",
+    "status",
+    "amountMinor",
+    "currency",
+    "transactionDate",
+    "merchant",
+    "counterparty",
+    "note",
+    "tags",
+    "categoryId",
+    "paymentMethodId",
+    "accountRef",
+  ],
+  categories: [
+    "name",
+    "icon",
+    "color",
+    "parentId",
+    "sortOrder",
+    "status",
+    "isDefault",
+  ],
+  "payment-methods": [
+    "name",
+    "provider",
+    "maskedNumber",
+    "accountRef",
+    "isDefault",
+    "status",
+  ],
+  settings: ["initialBalanceMinor"],
+};
+
+function normalizeForOp(
+  entity: SyncEntity,
+  op: "create" | "update",
+  payload: unknown,
+): Record<string, unknown> {
+  const allowed = op === "create" ? CREATE_FIELDS[entity] : UPDATE_FIELDS[entity];
+  const out: Record<string, unknown> = {};
+  if (typeof payload !== "object" || payload === null) return out;
+  const source = payload as Record<string, unknown>;
+  for (const key of allowed) {
+    const value = source[key];
+    if (value === null || value === undefined) continue;
+    out[key] = value;
+  }
+  return out;
+}
 
 export interface SyncServiceDeps {
   logger: AppLogger;
   transactionService: TransactionService;
   categoryService: CategoryService;
   paymentMethodService: PaymentMethodService;
+  settingsService: SettingsService;
   repository?: SyncRepository;
   transactionRepository?: TransactionRepository;
   categoryRepository?: CategoryRepository;
   paymentMethodRepository?: PaymentMethodRepository;
+  settingsRepository?: SettingsRepository;
 }
 
 export interface SyncContext {
@@ -155,6 +265,22 @@ function serializePaymentMethod(
   };
 }
 
+function serializeSettings(
+  doc: Record<string, unknown>,
+  idField = "_id",
+): SettingsPublic {
+  return {
+    id: String(doc[idField]),
+    userId: oid(doc.userId) ?? "",
+    clientId: String(doc.clientId ?? ""),
+    initialBalanceMinor: (doc.initialBalanceMinor as number) ?? 0,
+    deleted: doc.deletedAt ? true : false,
+    createdAt: toIso(doc.createdAt),
+    updatedAt: toIso(doc.updatedAt),
+    rev: (doc.rev as number) ?? 0,
+  };
+}
+
 function toIso(value: unknown): string {
   if (value instanceof Date) return value.toISOString();
   if (typeof value === "string" || typeof value === "number") {
@@ -169,14 +295,12 @@ interface TargetRecord {
   clientId: string;
   rev: number;
   deletedAt: Date | null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any;
 }
 
 type SchemaLike = {
   safeParse: (value: unknown) => {
     success: boolean;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     data?: any;
     error?: { issues?: unknown[] };
   };
@@ -187,6 +311,7 @@ export class SyncService {
   private readonly transactionRepo: TransactionRepository;
   private readonly categoryRepo: CategoryRepository;
   private readonly paymentMethodRepo: PaymentMethodRepository;
+  private readonly settingsRepo: SettingsRepository;
 
   constructor(private readonly deps: SyncServiceDeps) {
     this.repository = deps.repository ?? createSyncRepository();
@@ -194,6 +319,7 @@ export class SyncService {
     this.categoryRepo = deps.categoryRepository ?? categoryRepository;
     this.paymentMethodRepo =
       deps.paymentMethodRepository ?? paymentMethodRepository;
+    this.settingsRepo = deps.settingsRepository ?? settingsRepository;
   }
 
   async changes(
@@ -335,6 +461,8 @@ export class SyncService {
         return serializeCategory(doc, "_id") as unknown as Record<string, unknown>;
       case "payment-methods":
         return serializePaymentMethod(doc, "_id") as unknown as Record<string, unknown>;
+      case "settings":
+        return serializeSettings(doc, "_id") as unknown as Record<string, unknown>;
     }
   }
 
@@ -526,8 +654,13 @@ export class SyncService {
       case "payment-methods":
         schema = op === "create" ? createPaymentMethodSchema : updatePaymentMethodSchema;
         break;
+      case "settings":
+        schema = op === "create" ? createSettingsSchema : updateSettingsSchema;
+        break;
     }
-    const result = schema.safeParse(payload);
+    // Project the pushed local document down to the fields the strict schema
+    // accepts so server-managed meta fields and null optionals don't reject it.
+    const result = schema.safeParse(normalizeForOp(entity, op, payload));
     if (!result.success) {
       return { valid: false, reason: "validation_failed" };
     }
@@ -552,6 +685,10 @@ export class SyncService {
       const doc = await this.deps.categoryService.create(p as never, { userId });
       return { id: doc.id, canonical: doc as unknown as Record<string, unknown> };
     }
+    if (entity === "settings") {
+      const doc = await this.deps.settingsService.create(p as never, { userId });
+      return { id: doc.id, canonical: doc as unknown as Record<string, unknown> };
+    }
     const doc = await this.deps.paymentMethodService.create(p as never, { userId });
     return { id: doc.id, canonical: doc as unknown as Record<string, unknown> };
   }
@@ -568,6 +705,10 @@ export class SyncService {
     }
     if (entity === "categories") {
       const doc = await this.deps.categoryService.update(userId, id, payload as never);
+      return { id: doc.id, canonical: doc as unknown as Record<string, unknown> };
+    }
+    if (entity === "settings") {
+      const doc = await this.deps.settingsService.update(userId, id, payload as never);
       return { id: doc.id, canonical: doc as unknown as Record<string, unknown> };
     }
     const doc = await this.deps.paymentMethodService.update(userId, id, payload as never);
@@ -587,6 +728,10 @@ export class SyncService {
       await this.deps.categoryService.softDelete(userId, id, userId);
       return;
     }
+    if (entity === "settings") {
+      await this.deps.settingsService.softDelete(userId, id, userId);
+      return;
+    }
     await this.deps.paymentMethodService.softDelete(userId, id, userId);
   }
 
@@ -600,6 +745,8 @@ export class SyncService {
       rec = await this.transactionRepo.findByClientId(userId, clientId);
     } else if (entity === "categories") {
       rec = await this.categoryRepo.findByClientId(userId, clientId);
+    } else if (entity === "settings") {
+      rec = await this.settingsRepo.findByClientId(userId, clientId);
     } else {
       rec = await this.paymentMethodRepo.findByClientId(userId, clientId);
     }

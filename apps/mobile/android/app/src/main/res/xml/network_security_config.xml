@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    MoneyTalks network security configuration.
+
+    Cleartext traffic is disabled by default so that tokens and financial data
+    can never be transmitted over plain HTTP. Only HTTPS connections are
+    permitted unless the deployment explicitly whitelists a specific host in
+    development (which is NOT enabled in the released APK).
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>

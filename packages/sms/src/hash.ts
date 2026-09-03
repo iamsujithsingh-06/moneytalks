@@ -27,7 +27,7 @@ function rotr(x: number, n: number): number {
 function bytesFromUtf8(input: string): number[] {
   const bytes: number[] = [];
   for (let i = 0; i < input.length; i += 1) {
-    let code = input.charCodeAt(i);
+    const code = input.charCodeAt(i);
     if (code < 0x80) {
       bytes.push(code);
     } else if (code < 0x800) {

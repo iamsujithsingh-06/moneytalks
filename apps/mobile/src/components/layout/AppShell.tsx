@@ -1,19 +1,34 @@
 import { NavLink, Outlet } from "react-router-dom";
 import { useSms } from "../../state/sms-context.js";
 import { useOcr } from "../../state/ocr-context.js";
-import { InboxIcon, PasteIcon } from "../ui/icons.js";
+import {
+  BarChartIcon,
+  CameraIcon,
+  InboxIcon,
+  MessageIcon,
+  PlusIcon,
+  SettingsIcon,
+  WalletIcon,
+} from "../ui/icons.js";
 
 const navItems = [
+  { to: "/home", label: "Home", icon: WalletIcon, end: true },
+  { to: "/transactions", label: "Transactions", icon: MessageIcon, end: false },
+  { to: "/analysis", label: "Analysis", icon: BarChartIcon, end: false },
+  { to: "/add", label: "Add", icon: PlusIcon, end: false },
   { to: "/reviews", label: "Review", icon: InboxIcon, end: false },
-  { to: "/receipts", label: "Receipts", icon: PasteIcon, end: false },
+  { to: "/receipts", label: "Receipts", icon: CameraIcon, end: false },
+  { to: "/settings", label: "Settings", icon: SettingsIcon, end: false },
 ];
 
 export function AppShell() {
   const { capturedCount } = useSms();
-  const { capturedCount: ocrCount } = useOcr();
+  const { capturedCount: receiptCount } = useOcr();
 
   function badgeCount(to: string): number {
-    return to === "/receipts" ? ocrCount : capturedCount;
+    if (to === "/reviews") return capturedCount;
+    if (to === "/receipts") return receiptCount;
+    return 0;
   }
 
   return (

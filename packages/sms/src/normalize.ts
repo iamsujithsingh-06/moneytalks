@@ -51,11 +51,13 @@ interface MatchWithContext {
 }
 
 function collectAmounts(text: string): MatchWithContext[] {
+  const normalized = normalizeDigits(text);
   const moneyRe =
     /(?<![\d.])\s*(?:₹|inr|rs\.?)\s*(\d{1,3}(?:,\d{3})*|\d+)(?:\.(\d{1,2}))?\b/gi;
   const out: MatchWithContext[] = [];
   let match: RegExpExecArray | null;
-  while ((match = moneyRe.exec(text)) !== null) {
+  const searchable = normalized;
+  while ((match = moneyRe.exec(searchable)) !== null) {
     const major = Number(match[1]!.replace(/,/g, ""));
     if (!Number.isFinite(major) || major <= 0) continue;
     const decimals = (match[2] ?? "").padEnd(2, "0").slice(0, 2);
@@ -63,9 +65,9 @@ function collectAmounts(text: string): MatchWithContext[] {
     out.push({
       index: match.index,
       end: match.index + match[0].length,
-      context: text.slice(
+      context: searchable.slice(
         Math.max(0, match.index - 48),
-        Math.min(text.length, match.index + match[0].length + 24),
+        Math.min(searchable.length, match.index + match[0].length + 24),
       ),
       result: {
         amountMinor: major * 100 + Number(decimals),
@@ -120,7 +122,7 @@ export function parseDateString(text: string, today?: Date): string | null {
     if (isValid(y!, m!, d!)) return `${y}-${m}-${d}`;
   }
 
-  const dmy = /(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/.exec(text);
+  const dmy = /(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})/.exec(text);
   if (dmy) {
     const [, dd, mm, yy] = dmy;
     const year = yy!.length === 2 ? `20${yy}` : yy;
@@ -170,7 +172,7 @@ export function cleanMerchant(input: string): string {
 
 /** Extract a masked account/card reference like "A/c **1234" or "Card xxxx 1234". */
 export function extractMaskedAccountRef(text: string): string | null {
-  const acNo = /(?:A\/c|A\/C|acct|account)\s*[\*xX]?\s*\*{2,}(\d{2,4})/.exec(text);
+  const acNo = /(?:A\/c|A\/C|acct|account)\s*[*xX]?\s*\*{2,}(\d{2,4})/.exec(text);
   if (acNo) return `****${acNo[1]}`;
   const card = /card\s+(?:x{2,4}|\*{2,})\s*(\d{4})/i.exec(text);
   if (card) return `****${card[1]}`;
@@ -189,6 +191,8 @@ export function extractRef(text: string, label: "upi" | "bank"): string | null {
     ],
     bank: [
       /\b(?:bankref|bank ref|txn id|transaction id|trn id|ref no|reference no)\s*[:#]?\s*([A-Za-z0-9]{6,30})/i,
+      // Indian Bank (and others) use an "RRN <number>" transaction reference.
+      /\brrn\s*[:#]?\s*(\d{6,30})/i,
     ],
   };
   for (const re of patterns[label] ?? []) {

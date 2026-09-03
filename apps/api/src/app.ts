@@ -16,6 +16,7 @@ import { createCategoriesController } from "./modules/categories/controller.js";
 import { CategoryService } from "./modules/categories/service.js";
 import { createPaymentMethodsController } from "./modules/payment-methods/controller.js";
 import { PaymentMethodService } from "./modules/payment-methods/service.js";
+import { SettingsService } from "./modules/settings/service.js";
 import { createBudgetsController } from "./modules/budgets/controller.js";
 import { BudgetService } from "./modules/budgets/service.js";
 import { createAnalyticsController } from "./modules/analytics/controller.js";
@@ -41,6 +42,8 @@ export interface AppDeps {
   /** Injectable for tests. When omitted, a default service is built. */
   paymentMethodsService?: PaymentMethodService;
   /** Injectable for tests. When omitted, a default service is built. */
+  settingsService?: SettingsService;
+  /** Injectable for tests. When omitted, a default service is built. */
   budgetsService?: BudgetService;
   /** Injectable for tests. When omitted, a default service is built. */
   analyticsService?: AnalyticsService;
@@ -51,7 +54,7 @@ export interface AppDeps {
   /** Injectable for tests. When omitted, a default service is built. */
   intelligenceService?: IntelligenceService;
   /** Injectable for tests. When omitted, limiters are built from config. */
-  rateLimiters?: { auth: RateLimitDeps; register: RateLimitDeps };
+  rateLimiters?: { auth: RateLimitDeps; register: RateLimitDeps; general: RateLimitDeps };
   /**
    * Per-account login rate limiter shared with the auth service. Injectable so
    * tests can reset it between cases. When omitted, one is built from config.
@@ -78,6 +81,13 @@ export function createApp(deps: AppDeps): Express {
         limiter: new SlidingWindowRateLimiter({
           windowMs: 60_000,
           max: config.rateLimit.registerPerMinute,
+        }),
+      },
+      general: {
+        enabled: config.rateLimit.enabled,
+        limiter: new SlidingWindowRateLimiter({
+          windowMs: 60_000,
+          max: config.rateLimit.generalPerMinute,
         }),
       },
     };
@@ -128,6 +138,12 @@ export function createApp(deps: AppDeps): Express {
     paymentMethodsService,
   );
 
+  const settingsService =
+    deps.settingsService ??
+    new SettingsService({
+      logger,
+    });
+
   const budgetsService =
     deps.budgetsService ??
     new BudgetService({
@@ -143,7 +159,6 @@ export function createApp(deps: AppDeps): Express {
     });
 
   const analyticsController = createAnalyticsController(analyticsService);
-
   const dashboardService =
     deps.dashboardService ??
     new DashboardService({
@@ -162,6 +177,7 @@ export function createApp(deps: AppDeps): Express {
       transactionService: transactionsService,
       categoryService: categoriesService,
       paymentMethodService: paymentMethodsService,
+      settingsService,
     });
 
   const syncController = createSyncController(syncService);
@@ -190,15 +206,15 @@ export function createApp(deps: AppDeps): Express {
   app.use(
     "/api/v1",
     createV1Router({
-      auth: { controller: authController, config, rateLimiters },
-      transactions: { controller: transactionsController, config },
-      categories: { controller: categoriesController, config },
-      paymentMethods: { controller: paymentMethodsController, config },
-      budgets: { controller: budgetsController, config },
-      analytics: { controller: analyticsController, config },
-      dashboard: { controller: dashboardController, config },
-      sync: { controller: syncController, config },
-      intelligence: { controller: intelligenceController, config },
+      auth: { controller: authController, config, rateLimiters, general: rateLimiters.general },
+      transactions: { controller: transactionsController, config, general: rateLimiters.general },
+      categories: { controller: categoriesController, config, general: rateLimiters.general },
+      paymentMethods: { controller: paymentMethodsController, config, general: rateLimiters.general },
+      budgets: { controller: budgetsController, config, general: rateLimiters.general },
+      analytics: { controller: analyticsController, config, general: rateLimiters.general },
+      dashboard: { controller: dashboardController, config, general: rateLimiters.general },
+      sync: { controller: syncController, config, general: rateLimiters.general },
+      intelligence: { controller: intelligenceController, config, general: rateLimiters.general },
     }),
   );
 

@@ -1,6 +1,7 @@
 import type {
   CategoryPublic,
   PaymentMethodPublic,
+  SettingsPublic,
   SyncEntity,
   TransactionPublic,
 } from "@moneytalks/types";
@@ -22,7 +23,9 @@ export type EntityDoc<T extends SyncEntity> = T extends "transactions"
   ? TransactionPublic
   : T extends "categories"
     ? CategoryPublic
-    : PaymentMethodPublic;
+    : T extends "settings"
+      ? SettingsPublic
+      : PaymentMethodPublic;
 
 type CommonDoc = {
   id: string;
@@ -34,7 +37,7 @@ type CommonDoc = {
   deletedAt?: string | null;
 };
 
-const SYNCABLE: SyncEntity[] = ["transactions", "categories", "payment-methods"];
+const SYNCABLE: SyncEntity[] = ["transactions", "categories", "payment-methods", "settings"];
 
 function stripUndefined(value: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};

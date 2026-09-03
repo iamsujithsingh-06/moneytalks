@@ -45,6 +45,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       // IndexedDB unavailable; continue without offline store.
     }
+    // Populate the token cache from native storage before reading the session.
+    await sessionStore.hydrate();
     if (!sessionStore.load().accessToken) {
       setStatus("ready");
       return;

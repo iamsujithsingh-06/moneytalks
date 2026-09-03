@@ -7,9 +7,11 @@ export default tseslint.config(
     ignores: [
       "**/node_modules/**",
       "**/dist/**",
+      "**/build/**",
       "**/coverage/**",
       "**/*.d.ts",
       "**/.turbo/**",
+      "apps/mobile/android/**",
     ],
   },
   js.configs.recommended,

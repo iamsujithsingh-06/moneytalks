@@ -1,8 +1,9 @@
 /**
  * SMS ingestion pipeline (mobile): detect -> parse -> normalize -> classify ->
- * dedup gate -> review queue. Reuses @moneytalks/sms for parsing and
- * classification, and @moneytalks/offline (the shared ledger) for duplicate
- * detection so offline review and multi-device sync never double-capture.
+ * dedup gate -> ledger commit (high confidence) or review queue (uncertain).
+ * Reuses @moneytalks/sms for parsing and classification, and
+ * @moneytalks/offline (the shared ledger) for duplicate detection so offline
+ * review and multi-device sync never double-capture.
  */
 import {
   isDuplicate,
@@ -14,9 +15,11 @@ import {
   type SmsPaymentMethodKind,
 } from "@moneytalks/sms";
 import { offlineStore } from "@moneytalks/offline";
+import { syncEngine } from "../offline/index.js";
 import {
   getDraft,
   listDrafts,
+  cleanupDrafts,
   newDraftId,
   putDraft,
   updateDraftStatus,
@@ -47,6 +50,7 @@ async function buildDedupCandidates(): Promise<DuplicateCandidate[]> {
         accountRef: (tx.accountRef as string | null) ?? null,
         messageHash: (tx.messageHash as string | undefined) ?? undefined,
         upiRef: (tx.upiRef as string | null) ?? null,
+        bankRef: (tx as { smsRef?: { bankRef?: string | null } | null }).smsRef?.bankRef ?? null,
         bankSource: (tx.bankSource as string | null) ?? null,
       });
     }
@@ -75,10 +79,23 @@ async function buildDedupCandidates(): Promise<DuplicateCandidate[]> {
  * Ingest a single SMS. Non-financial / unsupported messages are stored with a
  * corresponding status but not queued for confirm. Duplicates are flagged via
  * the dedup gate (message hash / UPI ref / content fingerprint).
+ *
+ * Routing decision:
+ * - High-confidence, successfully parsed bank/UPI SMS (`disposition ===
+ *   "transaction"`) are committed directly to the transaction ledger as
+ *   Auto Income (credit) / Auto Expense (debit) — no Review required.
+ * - Uncertain / low-confidence / ambiguous items (`disposition ===
+ *   "ambiguous"`, or no parse) continue through the Review queue.
+ * - Receipt/OCR items are handled by their own (unchanged) pipeline.
  */
 export async function ingestSms(message: SmsMessage): Promise<IngestResult> {
   const now = new Date().toISOString();
   const hash = messageHash(message.body);
+
+  // Opportunistically purge resolved drafts older than the retention window so
+  // raw SMS bodies are not kept on-device indefinitely. Fire-and-forget: it
+  // must never block the ingest path.
+  void cleanupDrafts().catch(() => undefined);
 
   const existingByIdentity = await findExisting(message);
   if (existingByIdentity) {
@@ -121,12 +138,37 @@ export async function ingestSms(message: SmsMessage): Promise<IngestResult> {
 
   await putDraft(record);
 
+  // Auto-confirm high-confidence SMS transactions directly into the ledger.
+  // Only `disposition === "transaction"` (confidence >= 0.75) qualifies;
+  // the parser routes everything below that to `"ambiguous"`, which stays in
+  // Review. Reuses confirmDraft so the transaction payload, source metadata
+  // (source: "sms", autoDetected), confidence and smsRef are preserved
+  // exactly as a manual confirm would produce.
+  const autoConfirmed =
+    !isDuplicateHit &&
+    status === "pending" &&
+    parsed.disposition === "transaction" &&
+    record.draft != null
+      ? await confirmDraft(record)
+      : null;
+
+  if (autoConfirmed) {
+    record.status = "confirmed";
+    record.syncedClientId = autoConfirmed.clientId;
+    record.updatedAt = new Date().toISOString();
+    // Push the auto-committed transaction to the server immediately, matching
+    // the manual confirm path.
+    void syncEngine.sync("manual");
+  }
+
   return {
     record,
-    captured: status === "pending",
+    captured: status === "pending" || autoConfirmed != null,
     reason: dedup?.isDuplicate
       ? `Duplicate detected (${dedup.signals.join(", ")}).`
-      : parsed.reason,
+      : autoConfirmed
+        ? `Parsed and committed to the ledger as Auto ${record.draft?.type === "income" ? "Income" : "Expense"}.`
+        : parsed.reason,
   };
 }
 

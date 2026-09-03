@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { clientIdSchema, objectIdSchema } from "./transactions.js";
 
-const SYNC_ENTITIES = ["transactions", "categories", "payment-methods"] as const;
+const SYNC_ENTITIES = ["transactions", "categories", "payment-methods", "settings"] as const;
 const SYNC_OPS = ["create", "update", "delete"] as const;
 
 export const syncEntitySchema = z.enum(SYNC_ENTITIES, {

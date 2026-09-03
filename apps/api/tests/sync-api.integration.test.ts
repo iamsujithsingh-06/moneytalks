@@ -36,6 +36,10 @@ function paymentMethodPayload(overrides: Record<string, unknown> = {}) {
   return { name: randomUUID(), kind: "wallet", ...overrides };
 }
 
+function settingsPayload(overrides: Record<string, unknown> = {}) {
+  return { initialBalanceMinor: 250_000, ...overrides };
+}
+
 function pushOp(overrides: Record<string, unknown> = {}) {
   return { entity: "transactions", op: "create", clientId: randomUUID(), payload: {}, ...overrides };
 }
@@ -285,8 +289,34 @@ describe("Sync API", () => {
       expect(result.reason).toBe("validation_failed");
     });
 
-    it("rejects an update for a missing entity", async () => {
+    it("applies a settings create and pulls it back with the initial balance", async () => {
+      const { accessToken } = await login("push-settings@example.com");
+      const op = pushOp({ entity: "settings", op: "create", payload: settingsPayload() });
+      const res = await push(accessToken, [op]).expect(200);
+      const result = (res.body.data as { results: PushResultItem[] }).results[0]!;
+      expect(result.status).toBe("applied");
+      expect(result.id).toBeTruthy();
+      expect((result.canonical as { initialBalanceMinor: number }).initialBalanceMinor).toBe(250_000);
+      expect((result.canonical as { clientId: string }).clientId).toBe((op as { clientId: string }).clientId);
+
+      const pull = await changes(accessToken).expect(200);
+      const settingsChange = allChanges(pull).find((c) => c.entity === "settings");
+      expect(settingsChange).toBeDefined();
+      expect(settingsChange!.payload).toMatchObject({ initialBalanceMinor: 250_000 });
+      expect(settingsChange!.payload).not.toBeNull();
+    });
+
+    it("rejects a settings update for a missing entity", async () => {
       const { accessToken } = await login("push7@example.com");
+      const op = pushOp({ entity: "settings", op: "update", clientId: randomUUID(), id: new Types.ObjectId().toString(), baseRev: 0, payload: { initialBalanceMinor: 100 } });
+      const res = await push(accessToken, [op]).expect(200);
+      const result = (res.body.data as { results: PushResultItem[] }).results[0]!;
+      expect(result.status).toBe("rejected");
+      expect(result.reason).toBe("not_found");
+    });
+
+    it("rejects an update for a missing entity", async () => {
+      const { accessToken } = await login("push9@example.com");
       const op = pushOp({ entity: "transactions", op: "update", clientId: randomUUID(), id: new Types.ObjectId().toString(), baseRev: 0, payload: { merchant: "X" } });
       const res = await push(accessToken, [op]).expect(200);
       const result = (res.body.data as { results: PushResultItem[] }).results[0]!;
@@ -412,7 +442,7 @@ describe("Sync API", () => {
       const { accessToken } = await login("state2@example.com");
       const res = await request(app).get("/api/v1/sync/state").set(withAuth(accessToken)).expect(200);
       const records = (res.body.data as { records: Array<{ entity: string; lastCursor: string | null; lastSyncAt: string | null; state: string }> }).records;
-      expect(records).toHaveLength(3);
+      expect(records).toHaveLength(4);
       expect(records.every((r) => r.state === "idle" && r.lastCursor === null)).toBe(true);
     });
   });

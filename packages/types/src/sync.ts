@@ -2,6 +2,7 @@ export const SYNC_ENTITIES = [
   "transactions",
   "categories",
   "payment-methods",
+  "settings",
 ] as const;
 
 export type SyncEntity = (typeof SYNC_ENTITIES)[number];

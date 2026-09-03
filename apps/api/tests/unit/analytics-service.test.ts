@@ -10,6 +10,7 @@ import type {
   AnalyticsTransaction,
 } from "../../src/modules/analytics/repository.js";
 import type { CategoryRepository, CategoryRecord } from "../../src/modules/categories/repository.js";
+import type { SettingsRepository } from "../../src/modules/settings/repository.js";
 
 const logger = {} as AppLogger;
 const USER = "user-a";
@@ -84,11 +85,27 @@ function makeCategoryRepo(
   };
 }
 
+function makeSettingsRepo(
+  initialBalanceMinor = 0,
+): SettingsRepository {
+  return {
+    create: async () => {
+      throw new Error("not used");
+    },
+    findByClientId: async () => null,
+    findByUser: async () => null,
+    update: async () => null,
+    softDelete: async () => null,
+    getInitialBalanceMinor: async () => initialBalanceMinor,
+  };
+}
+
 function makeService(deps: Partial<AnalyticsServiceDeps> = {}): AnalyticsService {
   return new AnalyticsService({
     logger,
     repository: makeRepo(),
     categoryRepository: makeCategoryRepo([]),
+    settingsRepository: makeSettingsRepo(0),
     ...deps,
   });
 }
@@ -230,5 +247,21 @@ describe("AnalyticsService", () => {
       repository: makeRepo({ balance: async () => 12_345 }),
     });
     expect(await service.balance(USER)).toBe(12_345);
+  });
+
+  it("balance adds the user's initial balance to the all-time net", async () => {
+    const service = makeService({
+      repository: makeRepo({ balance: async () => 12_345 }),
+      settingsRepository: makeSettingsRepo(200_000),
+    });
+    expect(await service.balance(USER)).toBe(212_345);
+  });
+
+  it("balance treats a missing initial balance as zero", async () => {
+    const service = makeService({
+      repository: makeRepo({ balance: async () => -500 }),
+      settingsRepository: makeSettingsRepo(0),
+    });
+    expect(await service.balance(USER)).toBe(-500);
   });
 });

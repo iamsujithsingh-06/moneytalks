@@ -12,10 +12,14 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/core": "^8.5.0",
+    "@capacitor/preferences": "^8.0.1",
     "@moneytalks/ocr": "workspace:*",
     "@moneytalks/offline": "workspace:*",
     "@moneytalks/shared": "workspace:*",
     "@moneytalks/sms": "workspace:*",
+    "@moneytalks/sms-capacitor-android": "workspace:*",
     "@moneytalks/types": "workspace:*",
     "@moneytalks/validation": "workspace:*",
     "react": "^19.1.0",
@@ -24,6 +28,7 @@
     "zod": "^3.24.2"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.5.0",
     "@moneytalks/config": "workspace:*",
     "@tailwindcss/vite": "^4.1.0",
     "@testing-library/jest-dom": "^6.6.0",

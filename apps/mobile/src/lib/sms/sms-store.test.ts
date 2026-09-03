@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  cleanupDrafts,
   clearDrafts,
   getDraft,
   listDrafts,
@@ -91,5 +92,33 @@ describe("sms-store", () => {
 
   it("returns null when updating a missing draft", async () => {
     expect(await updateDraftStatus("nope", "confirmed")).toBeNull();
+  });
+
+  it("purges old resolved drafts but keeps pending and recent ones", async () => {
+    const longAgo = "2020-01-01T00:00:00.000Z";
+    const oldConfirmed = record({
+      id: newDraftId(),
+      status: "confirmed",
+      updatedAt: longAgo,
+      createdAt: longAgo,
+    });
+    await putDraft(oldConfirmed);
+
+    const oldPending = record({ id: newDraftId(), createdAt: longAgo, updatedAt: longAgo });
+    await putDraft(oldPending);
+
+    const recentConfirmed = record({
+      id: newDraftId(),
+      status: "confirmed",
+      updatedAt: new Date().toISOString(),
+    });
+    await putDraft(recentConfirmed);
+
+    const removed = await cleanupDrafts(30);
+
+    expect(removed).toBe(1);
+    expect(await getDraft(oldConfirmed.id)).toBeNull();
+    expect(await getDraft(oldPending.id)).not.toBeNull();
+    expect(await getDraft(recentConfirmed.id)).not.toBeNull();
   });
 });

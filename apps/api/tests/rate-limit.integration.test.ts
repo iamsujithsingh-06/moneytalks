@@ -10,6 +10,7 @@ describe("Rate limiting", () => {
       await createTestApp({
         AUTH_RATE_LIMIT_ENABLED: "true",
         AUTH_RATE_LIMIT_PER_MINUTE: "2",
+        GENERAL_RATE_LIMIT_PER_MINUTE: "3",
       })
     ).app;
   });
@@ -34,5 +35,18 @@ describe("Rate limiting", () => {
     expect(limited.body.error.retryAfterSeconds).toBeGreaterThan(0);
     expect(limited.headers["retry-after"]).toBeTruthy();
     expect(limited.body.error.requestId).toBeTruthy();
+  });
+
+  it("throttles authenticated data endpoints with the general limiter", async () => {
+    // The general per-IP limiter is mounted in front of data routers. Even
+    // unauthenticated requests count toward it, so hammering the transactions
+    // list must yield a 429 once the window is exhausted.
+    let statuses = 0;
+    for (let i = 0; i < 5; i++) {
+      const res = await request(app).get("/api/v1/transactions");
+      statuses = res.status;
+      if (res.status === 429) break;
+    }
+    expect(statuses).toBe(429);
   });
 });

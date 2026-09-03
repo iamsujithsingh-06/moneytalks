@@ -21,15 +21,25 @@ const envSchema = z.object({
     .default("info"),
   CORS_ORIGINS: z
     .string()
-    .default("http://localhost:5173,http://localhost:3000"),
+    .default(
+      "http://localhost:5173,http://localhost:3000,http://localhost",
+    ),
   AUTH_RATE_LIMIT_ENABLED: booleanFromEnv.default("true"),
   AUTH_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(10),
   REGISTER_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(5),
+  GENERAL_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(300),
   MAX_LOGIN_ATTEMPTS: z.coerce.number().int().positive().default(5),
   LOGIN_LOCKOUT_SECONDS: z.coerce.number().int().positive().default(900),
 });
 
 export type Env = z.infer<typeof envSchema>;
+
+export type RateLimitConfig = {
+  enabled: boolean;
+  authPerMinute: number;
+  registerPerMinute: number;
+  generalPerMinute: number;
+};
 
 export interface AppConfig {
   env: Env["NODE_ENV"];
@@ -48,6 +58,7 @@ export interface AppConfig {
     enabled: boolean;
     authPerMinute: number;
     registerPerMinute: number;
+    generalPerMinute: number;
   };
   bruteForce: {
     maxLoginAttempts: number;
@@ -99,11 +110,12 @@ export function loadConfig(
     corsOrigins: env.CORS_ORIGINS.split(",")
       .map((s) => s.trim())
       .filter(Boolean),
-    rateLimit: {
-      enabled: env.AUTH_RATE_LIMIT_ENABLED,
-      authPerMinute: env.AUTH_RATE_LIMIT_PER_MINUTE,
-      registerPerMinute: env.REGISTER_RATE_LIMIT_PER_MINUTE,
-    },
+  rateLimit: {
+    enabled: env.AUTH_RATE_LIMIT_ENABLED,
+    authPerMinute: env.AUTH_RATE_LIMIT_PER_MINUTE,
+    registerPerMinute: env.REGISTER_RATE_LIMIT_PER_MINUTE,
+    generalPerMinute: env.GENERAL_RATE_LIMIT_PER_MINUTE,
+  },
     bruteForce: {
       maxLoginAttempts: env.MAX_LOGIN_ATTEMPTS,
       lockoutSeconds: env.LOGIN_LOCKOUT_SECONDS,

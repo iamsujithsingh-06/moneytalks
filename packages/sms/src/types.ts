@@ -70,5 +70,6 @@ export interface DuplicateCandidate {
   accountRef?: string | null;
   messageHash?: string;
   upiRef?: string | null;
+  bankRef?: string | null;
   bankSource?: string | null;
 }

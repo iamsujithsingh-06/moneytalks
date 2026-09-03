@@ -3,6 +3,7 @@ import type {
   CapturePermission,
   CapturePermissionState,
   SmsCaptureSource,
+  SmsCaptureSourceInfo,
 } from "./types.js";
 
 /**
@@ -25,7 +26,7 @@ interface SmsCapturePluginLike {
   addListener?: (
     eventName: string,
     fn: (data: { sender?: string | null; body?: string; receivedAt?: string | null }) => void,
-  ) => Promise<{ remove: () => void }>;
+  ) => { remove: () => void };
 }
 
 interface CapacitorPluginRegistry {
@@ -74,13 +75,23 @@ export function isNativeCapable(): boolean {
 }
 
 export class CapacitorSmsCaptureSource implements SmsCaptureSource {
-  readonly info = {
-    id: "native",
-    kind: "native" as const,
-    label: "Auto-capture from messages",
-    available: isNativeCapable(),
-    reason: isNativeCapable() ? null : UNSAFE_ENV_REASON,
-  };
+  // Availability is evaluated lazily (not once at construction) so that the
+  // Capacitor web runtime/plugin proxy is consulted whenever the bridge reads
+  // `info` — e.g. when `SmsCaptureBridge.start()` runs after the app opens. The
+  // native bridge injects `window.Capacitor.Plugins.SmsCapture` into the WebView
+  // before the app JS mounts, but if that global isn't present yet we must not
+  // cache a false `available` forever (which would skip subscription and the
+  // queued-message flush).
+  get info(): SmsCaptureSourceInfo {
+    const available = isNativeCapable();
+    return {
+      id: "native",
+      kind: "native" as const,
+      label: "Auto-capture from messages",
+      available,
+      reason: available ? null : UNSAFE_ENV_REASON,
+    };
+  }
 
   getPermission(): Promise<CapturePermission> {
     const plugin = resolvePlugin();
@@ -108,25 +119,26 @@ export class CapacitorSmsCaptureSource implements SmsCaptureSource {
     const plugin = resolvePlugin();
     if (!plugin?.addListener) return () => undefined;
 
-    let remove: (() => void) | undefined;
-    void plugin
-      .addListener("message", (data) => {
-        if (!data.body) return;
-        handler({
-          sender: data.sender ?? null,
-          body: data.body,
-          receivedAt: data.receivedAt ?? new Date().toISOString(),
-        });
-      })
-      .then((l) => {
-        remove = l.remove;
-      })
-      .catch(() => undefined);
-
-    // Ask the native receiver to begin pushing messages.
+    let stopped = false;
+    // Capacitor's `addListener` returns the listener handle `{ remove }`
+    // synchronously — it is NOT a Promise. Register the JS `"message"` listener
+    // first, capture its `remove`, then ask the native side to begin pushing.
+    // Queued messages are flushed by `startCapture()` through `notifyListeners`,
+    // which can only deliver to a listener that is already registered, so we
+    // must not fire `startCapture()` until `addListener` has returned.
+    const handle = plugin.addListener("message", (data) => {
+      if (stopped || !data.body) return;
+      handler({
+        sender: data.sender ?? null,
+        body: data.body,
+        receivedAt: data.receivedAt ?? new Date().toISOString(),
+      });
+    });
+    const remove = handle.remove;
     void plugin.startCapture?.().catch(() => undefined);
 
     return () => {
+      stopped = true;
       void plugin.stopCapture?.().catch(() => undefined);
       remove?.();
     };

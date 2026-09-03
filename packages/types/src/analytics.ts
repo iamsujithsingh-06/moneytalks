@@ -1,9 +1,3 @@
-import type {
-  AnalyticsCashflowQuery,
-  AnalyticsCategoriesQuery,
-  AnalyticsSummaryQuery,
-} from "@moneytalks/validation";
-
 export type {
   AnalyticsCashflowQuery,
   AnalyticsCategoriesQuery,

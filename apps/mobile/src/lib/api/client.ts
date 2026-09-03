@@ -17,6 +17,23 @@ export const API_BASE_URL: string =
   (import.meta.env.VITE_API_BASE_URL as string | undefined) ??
   (import.meta.env.DEV ? "http://localhost:3000/api/v1" : "/api/v1");
 
+/**
+ * Defense-in-depth: never transmit authentication tokens or financial data over
+ * plain HTTP in a production build. A relative "/api/v1" (same-origin) and
+ * http://localhost (dev tools) are allowed; any other cleartext URL is rejected
+ * so the app fails closed instead of leaking over the wire.
+ */
+export function assertSecureApiBase(baseUrl: string, isProd: boolean): void {
+  if (isProd && /^http:\/\//i.test(baseUrl)) {
+    throw new Error(
+      "Refusing to run production MoneyTalks against an insecure HTTP API base URL. " +
+        "Set VITE_API_BASE_URL to an HTTPS endpoint.",
+    );
+  }
+}
+
+assertSecureApiBase(API_BASE_URL, Boolean(import.meta.env.PROD));
+
 export interface AuthApi {
   register(input: RegisterInput): Promise<{ userId: string; emailVerified: boolean }>;
   login(input: LoginInput): Promise<LoginResponse>;

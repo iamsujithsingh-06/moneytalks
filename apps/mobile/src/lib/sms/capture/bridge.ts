@@ -33,6 +33,7 @@ export class SmsCaptureBridge {
   private readonly sources: SmsCaptureSource[];
   private readonly ingest: (message: SmsMessage) => Promise<IngestResult>;
   private readonly unsubscribes: Array<() => void> = [];
+  private readonly subscribedSources = new Set<SmsCaptureSource>();
   private readonly listeners = new Set<Listener>();
   private running = false;
 
@@ -64,13 +65,19 @@ export class SmsCaptureBridge {
     for (const l of this.listeners) l(next);
   }
 
-  /** Subscribe to every available push source. Idempotent. */
+  /** Subscribe to every available push source. Idempotent and safe to call
+   *  again if a source becomes available later (e.g. on app resume after the
+   *  native bridge finishes injecting `window.Capacitor`). */
   async start(): Promise<void> {
-    if (this.running) return;
-    this.running = true;
-    this.emit({ running: true });
+    if (!this.running) {
+      this.running = true;
+      this.emit({ running: true });
+    }
     for (const source of this.sources) {
-      if (!source.info.available) continue;
+      // `available` is evaluated lazily by the source so a source that was
+      // constructed before the Capacitor runtime/plugin proxy existed (and thus
+      // is now ready) still gets subscribed and its queued messages flushed.
+      if (!source.info.available || this.subscribedSources.has(source)) continue;
       const unsub = source.subscribe((message) => {
         this.ingest(message).catch((err) => {
           this.emit({
@@ -79,6 +86,7 @@ export class SmsCaptureBridge {
         });
       });
       this.unsubscribes.push(unsub);
+      this.subscribedSources.add(source);
     }
   }
 
@@ -87,6 +95,7 @@ export class SmsCaptureBridge {
     this.running = false;
     for (const unsub of this.unsubscribes) unsub();
     this.unsubscribes.length = 0;
+    this.subscribedSources.clear();
     this.emit({ running: false });
   }
 

@@ -3,6 +3,7 @@ import type {
   SyncChangesResult,
   SyncEntity,
   SyncPushOp,
+  SyncPushResult,
   SyncPushResultItem,
 } from "@moneytalks/types";
 import type { EntityRecord, OutboxOp } from "./db.js";
@@ -27,6 +28,7 @@ export const SYNC_ENTITIES: SyncEntity[] = [
   "transactions",
   "categories",
   "payment-methods",
+  "settings",
 ];
 
 export type SyncStatusValue =
@@ -64,11 +66,17 @@ const CURSOR_KEYS: Record<SyncEntity, string> = {
   transactions: "cursor:transactions",
   categories: "cursor:categories",
   "payment-methods": "cursor:payment-methods",
+  settings: "cursor:settings",
 };
 
 const MAX_BATCH = 100;
 const RETRY_MAX_MS = 5 * 60 * 1000;
 const RETRY_BASE_MS = 1000;
+
+/** Server rejection reason for a create that collides with an existing record
+ *  (ErrorCodes.DuplicateTransaction lowercased). A duplicate is reconciled,
+ *  never treated as a permanent error nor re-pushed. */
+const DUPLICATE_TRANSACTION_REASON = "duplicate_transaction";
 
 /** Minimal key/value storage surface (defaults to browser sessionStorage). */
 export interface KeyValueStorage {
@@ -99,6 +107,7 @@ export class SyncEngine {
   private snapshot: SyncSnapshot;
   private running = false;
   private manualRun = false;
+  private rerunRequested = false;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private onlineHandler: () => void;
   private offlineHandler: () => void;
@@ -187,6 +196,12 @@ export class SyncEngine {
   }
 
   async refreshStatic(): Promise<void> {
+    // Recover any pre-existing outbox ops that were already rejected as
+    // `duplicate_transaction` (e.g. on an older build, or before a device had a
+    // fresh clientId). These are one-time LOCAL reconciliations driven by the
+    // server's previously-recorded rejection — no re-push, no server round-trip,
+    // no clearing of user data, and deduplication is unchanged.
+    await this.reconcileDuplicateOps();
     const issues = await this.loadIssues();
     const pending = await getPendingOps();
     const failed = pending.filter((o) => o.status === "failed").length;
@@ -198,19 +213,70 @@ export class SyncEngine {
       lastSyncAt,
       issues,
       status:
-        conflictCount > 0
+        conflictCount > 0 || failed > 0
           ? "conflict"
-          : failed > 0
-            ? "failed"
-            : pending.length > 0
-              ? "pending"
-              : "synced",
+          : pending.length > 0
+            ? "pending"
+            : "synced",
     });
+  }
+
+  /**
+   * Locally reconcile outbox ops that were already rejected as
+   * `duplicate_transaction`. The server holds the canonical record (that is
+   * what the rejection means), so the local optimistic create is redundant:
+   * clear the op and its recorded issue, and clean the local entity. Only
+   * `create` ops with a matching `rejected` issue whose reason is
+   * `duplicate_transaction` are affected — genuine validation/conflict
+   * rejections are left untouched (they stay "Needs attention"). This is the
+   * one-time recovery mechanism for pre-existing failed duplicate ops.
+   */
+  private async reconcileDuplicateOps(): Promise<void> {
+    const issues = await this.loadIssues();
+    const dupIssues = issues.filter(
+      (i) => i.kind === "rejected" && i.reason === DUPLICATE_TRANSACTION_REASON,
+    );
+    if (dupIssues.length === 0) return;
+    const issueKey = (e: SyncEntity, c: string) => `${e}:${c}`;
+    const dupKeys = new Set(dupIssues.map((i) => issueKey(i.entity, i.clientId)));
+
+    const ops = await getPendingOps();
+    const toDelete: number[] = [];
+    const reconciledKeys = new Set<string>();
+    for (const op of ops) {
+      if (
+        op.op === "create" &&
+        op.status === "failed" &&
+        dupKeys.has(issueKey(op.entity, op.clientId))
+      ) {
+        if (op.seq !== undefined) toDelete.push(op.seq);
+        reconciledKeys.add(issueKey(op.entity, op.clientId));
+        const rec = await getEntity(op.clientId);
+        if (rec && rec.entity === op.entity) {
+          await putEntity({ ...rec, localDirty: undefined, conflict: false });
+        }
+      }
+    }
+    for (const seq of toDelete) {
+      await deleteOp(seq);
+    }
+    if (reconciledKeys.size > 0) {
+      await setMeta(
+        "sync:issues",
+        issues.filter((i) => !(i.reason === DUPLICATE_TRANSACTION_REASON && reconciledKeys.has(issueKey(i.entity, i.clientId)))),
+      );
+    }
   }
 
   /** Trigger a sync. No-op if one is in flight. */
   async sync(_reason: "manual" | "start" | "reconnect" | "retry"): Promise<void> {
-    if (this.manualRun) return;
+    if (this.manualRun) {
+      // A sync is currently in flight. Remember that we were asked to sync
+      // again so any ops created since the in-flight run began (e.g. an SMS
+      // auto-transaction committed mid-sync) get flushed once it completes.
+      this.rerunRequested = true;
+      return;
+    }
     this.manualRun = true;
     try {
       if (this.snapshot.online === false) return;
@@ -218,6 +284,10 @@ export class SyncEngine {
       await this.doSync();
     } finally {
       this.manualRun = false;
+      if (this.rerunRequested) {
+        this.rerunRequested = false;
+        await this.sync("retry");
+      }
     }
   }
 
@@ -368,7 +438,13 @@ export class SyncEngine {
   /* -------------------------------- push -------------------------------- */
 
   private async push(): Promise<void> {
-    const ops = await getPendingOps();
+    // Only `pending` ops are pushed. A `failed`-status op is terminal (a
+    // rejected or conflicting change) — it must be resolved explicitly (e.g.
+    // resolveKeepMine/Theirs) and must NOT be blindly re-pushed on every sync,
+    // which would keep hitting the server and never change state. Transient
+    // failures are reset to `pending` (resetInFlightToPending), so they still
+    // retry.
+    const ops = (await getPendingOps()).filter((o) => o.status === "pending");
     if (ops.length === 0) return;
 
     for (let i = 0; i < chunkLength(ops, MAX_BATCH); i += 1) {
@@ -389,7 +465,17 @@ export class SyncEngine {
         idempotencyKey: op.idempotencyKey,
       }));
 
-      const result = await this.client.push(pushOps);
+      let result: SyncPushResult;
+      try {
+        result = await this.client.push(pushOps);
+      } catch (err) {
+        // The push itself failed (network, 5xx, ...) after this batch was set
+        // to `inFlight`. Reset the batch to `pending` so a retry can pick it
+        // back up; otherwise the ops would be stuck forever (getPendingOps
+        // only returns `pending` + `failed`).
+        await this.resetInFlightToPending(batch);
+        throw err;
+      }
       const items = result.results ?? [];
       for (let j = 0; j < batch.length; j += 1) {
         const op = batch[j];
@@ -398,6 +484,12 @@ export class SyncEngine {
         if (!item) continue;
         await this.applyPushResult(op, item);
       }
+    }
+  }
+
+  private async resetInFlightToPending(ops: OutboxOp[]): Promise<void> {
+    for (const op of ops) {
+      if (op.seq !== undefined) await setOpStatus(op.seq, "pending");
     }
   }
 
@@ -446,6 +538,25 @@ export class SyncEngine {
     }
 
     // rejected
+    // A `create` rejected as `duplicate_transaction` means the server already
+    // holds this record (same fingerprint, different clientId — e.g. the same
+    // SMS transaction created on a previous/wiped device). This is the
+    // *intended outcome* of server-side deduplication, not an error: reconcile
+    // it as synced so it does not linger as a permanent "Needs attention" op
+    // (and stop re-pushing it forever). Deduplication is NOT weakened — the
+    // server still enforces it; we simply acknowledge the duplicate.
+    if (op.op === "create" && item.reason === DUPLICATE_TRANSACTION_REASON) {
+      const rec = await getEntity(op.clientId);
+      if (rec) {
+        await putEntity({ ...rec, localDirty: undefined, conflict: false });
+      }
+      if (op.seq !== undefined) {
+        await setOpStatus(op.seq, "synced");
+        await deleteOp(op.seq);
+      }
+      return;
+    }
+
     await this.pushIssue({
       entity: op.entity,
       clientId: op.clientId,

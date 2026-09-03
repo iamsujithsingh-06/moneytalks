@@ -44,8 +44,13 @@ export interface SmsParser {
 
 function directionOf(text: string): SmsDirection {
   if (/credited back|refunded|refund|reversed/i.test(text)) return "credit";
+  // "X sent you / has sent Rs.Y" means money received; a bare "Sent Rs.Y from
+  // A/c..." is an outgoing payment from the user's own account.
+  if (/sent you|has sent/i.test(text)) return "credit";
   if (/credited|received|recvd|added to/i.test(text)) return "credit";
-  if (/debited|withdrawn|paid|spent|used|purchase|charged|payment of/i.test(text)) {
+  if (
+    /debited|withdrawn|paid|spent|used|purchase|charged|payment of|sent\b/i.test(text)
+  ) {
     return "debit";
   }
   return "unknown";
@@ -75,6 +80,31 @@ function looksLikeAccountRef(value: string): boolean {
   return /(?:a\/c|account|acct|card|x{2,}|\*{2,}|^\*|\d{8,})/i.test(value);
 }
 
+/**
+ * Trim trailing non-name tokens that a loose name capture may have absorbed
+ * (e.g. "Mr Tharun Kumar on 03-09-26" -> "Mr Tharun Kumar"). Also drops a
+ * sentence separator or trailing punctuation before the remaining value.
+ */
+function cleanPartyName(value: string): string | null {
+  return cleanMerchant(
+    value
+      .replace(
+        /\s+(?:on|from|via|upi|ref|rrn|at|dated|using)\b.*$/i,
+        "",
+      )
+      .replace(/[.\s,]+$/g, "")
+      .trim(),
+  );
+}
+
+/**
+ * Boundary lookahead for an Indian Bank party-name capture ("to <name>" /
+ * "by <name>"). Stops before a following date/boundary word or a sentence
+ * separator so trailing content is never swallowed.
+ */
+const PARTY_NAME_BOUNDARY =
+  /\s+(?:using|on|via|upi|ref|rrn|at|dated|\d)|[.,'']|$/i;
+
 /** Extract merchant/payee (outflow receiver) from common phrasings. */
 function extractMerchant(text: string): string | null {
   const paidTo = /(?:paid|pay)\s+to\s+([A-Za-z0-9 .&]+?)(?=\s+(?:using|on|via|upi|ref|\.|$))/i.exec(text);
@@ -97,6 +127,14 @@ function extractMerchant(text: string): string | null {
     const v = cleanMerchant(spentAt[1]!);
     if (!looksLikeAccountRef(v)) return v;
   }
+  // Indian Bank outgoing: "Sent Rs.5.00 from A/c *3953 on 02-09-26 to HARISH RAGAV".
+  // Recipient names may be ALL-CAPS or title-case, optionally with a title
+  // (Mr/Ms/Mrs/M-S) and possibly single-letter initials.
+  const sentTo = new RegExp(`\\bsent\\b[\\s\\S]*?\\bto\\s+(.+?)(?=${PARTY_NAME_BOUNDARY.source})`, "i").exec(text);
+  if (sentTo) {
+    const v = cleanPartyName(sentTo[1]!);
+    if (v && !looksLikeAccountRef(v)) return v;
+  }
   return null;
 }
 
@@ -111,6 +149,14 @@ function extractCounterparty(text: string): string | null {
   if (creditedBy) {
     const v = cleanMerchant(creditedBy[1]!);
     if (!looksLikeAccountRef(v)) return v;
+  }
+  // Indian Bank incoming: "credited with Rs.5.00 on 02-09-26 by HARISH RAGAV".
+  // Sender names may be ALL-CAPS or title-case, optionally with a title
+  // (Mr/Ms/Mrs/M-S) and possibly single-letter initials.
+  const creditedWithBy = new RegExp(`\\bcredited\\b[\\s\\S]*?\\bby\\s+(.+?)(?=${PARTY_NAME_BOUNDARY.source})`, "i").exec(text);
+  if (creditedWithBy) {
+    const v = cleanPartyName(creditedWithBy[1]!);
+    if (v && !looksLikeAccountRef(v)) return v;
   }
   return null;
 }

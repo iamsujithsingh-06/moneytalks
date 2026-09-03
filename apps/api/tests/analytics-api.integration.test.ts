@@ -28,10 +28,6 @@ function txBody(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function pad(n: number): string {
-  return String(n).padStart(2, "0");
-}
-
 describe("Analytics API", () => {
   let app: TestApp["app"];
   let logger: TestApp["logger"];

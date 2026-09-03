@@ -68,6 +68,11 @@ describe("parseAmount", () => {
   it("returns null when no amount present", () => {
     expect(parseAmount("Your transaction is complete")).toBeNull();
   });
+  it("normalizes fullwidth (Unicode) digits used in some bank SMS fonts", () => {
+    // U+FF11..U+FF10 fullwidth digits should be treated as ASCII digits.
+    expect(parseAmount("₹１,０００.００ debited from A/c")?.amountMinor).toBe(100000);
+    expect(parseAmount("RS. ５００ paid")?.amountMinor).toBe(50000);
+  });
 });
 
 /* --------------------------- detection ------------------------------ */
@@ -108,6 +113,40 @@ describe("parseSms — debit transaction", () => {
     expect(r.draft?.upiRef).toContain("417281920347");
     expect(r.draft?.confidence).toBeGreaterThanOrEqual(0.75);
   });
+  it("parses an outgoing 'Sent Rs.X from A/c' SMS as an expense", () => {
+    const r = parseSms(
+      msg("Sent Rs.5.00 from A/c **5687 to RUPESH KUMAR on 01-09-26. UPI Ref: 414287182659. Avl Bal Rs.15,000.00"),
+    );
+    expect(r.disposition).toBe("transaction");
+    expect(r.draft?.type).toBe("expense");
+    expect(r.draft?.amountMinor).toBe(500);
+    expect(r.draft?.accountRef).toContain("5687");
+    expect(r.draft?.upiRef).toContain("414287182659");
+    expect(r.draft?.transactionDate).toBe("2026-09-01");
+  });
+  it("parses 'Rs.X sent from A/c' (alternate wording) as an expense", () => {
+    const r = parseSms(
+      msg("Rs.1,500.00 sent from A/c **1234 on 02-09-26. UPI Ref: 123456789012"),
+    );
+    expect(r.draft?.type).toBe("expense");
+    expect(r.draft?.amountMinor).toBe(150000);
+  });
+  it("parses the Indian Bank 'Sent Rs.X' outgoing SMS as a high-confidence Auto Expense", () => {
+    // Real outgoing SMS from an Indian Bank phone. Single-asterisk account ref
+    // and an "RRN <number>" reference (not a UPI Ref).
+    const r = parseSms(
+      msg(
+        "Sent Rs.5.00 from A/c *3953 on 02-09-26 to HARISH RAGAV.RRN 128925286398.Avl Bal Rs.84.78.Not you?SMS BLOCK to 9289592895-Indian Bank",
+        "VM-INDIANBK",
+      ),
+    );
+    expect(r.disposition).toBe("transaction");
+    expect(r.draft?.type).toBe("expense");
+    expect(r.draft?.amountMinor).toBe(500);
+    expect(r.draft?.transactionDate).toBe("2026-09-02");
+    expect(r.draft?.bankRef).toBe("128925286398");
+    expect(r.draft?.confidence).toBeGreaterThanOrEqual(0.75);
+  });
 });
 
 describe("parseSms — credit transaction", () => {
@@ -120,6 +159,13 @@ describe("parseSms — credit transaction", () => {
     expect(r.draft?.amountMinor).toBe(5500000);
     expect(r.draft?.counterparty?.toUpperCase()).toContain("ACME");
     expect(r.draft?.transactionDate).toBe("2026-09-01");
+  });
+  it("does not treat 'sent you' (money received) as an expense", () => {
+    const r = parseSms(
+      msg("Ramesh sent you Rs.500.00 on 01-09-26. UPI Ref: 414287182659"),
+    );
+    expect(r.draft?.type).toBe("income");
+    expect(r.draft?.amountMinor).toBe(50000);
   });
 });
 
@@ -196,6 +242,72 @@ describe("parseSms — ambiguous (review strongly required)", () => {
   });
 });
 
+describe("parseSms — Indian Bank party names (title-case / honorifics / initials)", () => {
+  it("extracts an ALL-CAPS sender for an incoming credit", () => {
+    const r = parseSms(
+      msg(
+        "Your A/c *3953 is credited with Rs.5.00 on 02-09-26 by HARISH RAGAV. RRN 661109446914. Available balance is Rs.89.78 - Indian Bank",
+        "VM-INDIANBK",
+      ),
+    );
+    expect(r.draft?.counterparty).toBe("HARISH RAGAV");
+  });
+  it("extracts an ALL-CAPS recipient for an outgoing debit", () => {
+    const r = parseSms(
+      msg(
+        "Sent Rs.5.00 from A/c *3953 on 02-09-26 to HARISH RAGAV.RRN 128925286398.Avl Bal Rs.84.78 - Indian Bank",
+        "VM-INDIANBK",
+      ),
+    );
+    expect(r.draft?.merchant).toBe("HARISH RAGAV");
+  });
+  it("extracts a title-case honorific sender name", () => {
+    const r = parseSms(
+      msg(
+        "Your A/c *3953 is credited with Rs.5.00 on 02-09-26 by Mr Tharun Kumar on 03-09-26. Available balance is Rs.89.78 - Indian Bank",
+        "VM-INDIANBK",
+      ),
+    );
+    expect(r.draft?.counterparty).toBe("Mr Tharun Kumar");
+  });
+  it("extracts a title-case honorific recipient name", () => {
+    const r = parseSms(
+      msg(
+        "Sent Rs.5.00 from A/c *3953 on 02-09-26 to Mr Tharun Kumar on 03-09-26. RRN 128925286398. Avl Bal Rs.84.78 - Indian Bank",
+        "VM-INDIANBK",
+      ),
+    );
+    expect(r.draft?.merchant).toBe("Mr Tharun Kumar");
+  });
+  it("does not swallow a trailing 'on <date>', 'UPI' or 'Ref' after the name", () => {
+    const r = parseSms(
+      msg(
+        "Sent Rs.5.00 from A/c *3953 on 02-09-26 to Ms Anu Priya UPI Ref 128925286398 on 03-09-26 - Indian Bank",
+        "VM-INDIANBK",
+      ),
+    );
+    expect(r.draft?.merchant).toBe("Ms Anu Priya");
+  });
+  it("handles a single-letter middle initial without truncating the name", () => {
+    const r = parseSms(
+      msg(
+        "Your A/c *3953 is credited with Rs.5.00 on 02-09-26 by Mr T Kumar on 03-09-26. Available balance is Rs.89.78 - Indian Bank",
+        "VM-INDIANBK",
+      ),
+    );
+    expect(r.draft?.counterparty).toBe("Mr T Kumar");
+  });
+  it("handles an M/S honorific business name", () => {
+    const r = parseSms(
+      msg(
+        "Sent Rs.5.00 from A/c *3953 on 02-09-26 to M/S SHREE TRADERS on 03-09-26. RRN 128925286398 - Indian Bank",
+        "VM-INDIANBK",
+      ),
+    );
+    expect(r.draft?.merchant).toBe("M/S SHREE TRADERS");
+  });
+});
+
 /* ------------------------------ dedup ------------------------------- */
 
 function cand(draft: SmsTransactionDraft): Parameters<typeof isDuplicate>[1][number] {
@@ -207,6 +319,7 @@ function cand(draft: SmsTransactionDraft): Parameters<typeof isDuplicate>[1][num
     accountRef: draft.accountRef,
     messageHash: draft.messageHash,
     upiRef: draft.upiRef,
+    bankRef: draft.bankRef,
     bankSource: draft.bankSource,
   };
 }
@@ -268,5 +381,40 @@ describe("isDuplicate", () => {
     const b = parseSms(msg("Rs.500 debited at TEA SHOP on 24-05-26"));
     expect(contentFingerprint(a.draft!)).toBe(contentFingerprint(b.draft!));
     expect(isDuplicate(a.draft!, [cand(b.draft!)]).isDuplicate).toBe(true);
+  });
+
+  it("does NOT treat the Indian Bank outgoing debit as a duplicate of the incoming credit", () => {
+    // Same day, same amount, no merchant/account ref, but DIFFERENT RRN.
+    // Regression: these used to fingerprint-collide and eat the Auto Expense.
+    const inc = parseSms(
+      msg(
+        "Your A/c *3953 is credited with Rs.5.00 on 02-09-26 by HARISH RAGAV. RRN 661109446914. Available balance is Rs.89.78 - Indian Bank",
+        "VM-INDIANBK",
+      ),
+    ).draft!;
+    const out = parseSms(
+      msg(
+        "Sent Rs.5.00 from A/c *3953 on 02-09-26 to HARISH RAGAV.RRN 128925286398.Avl Bal Rs.84.78.Not you?SMS BLOCK to 9289592895-Indian Bank",
+        "VM-INDIANBK",
+      ),
+    ).draft!;
+    expect(contentFingerprint(inc)).not.toBe(contentFingerprint(out));
+    expect(isDuplicate(out, [cand(inc)]).isDuplicate).toBe(false);
+  });
+
+  it("flags a re-received Indian Bank SMS by its RRN as a duplicate", () => {
+    const a = parseSms(
+      msg(
+        "Sent Rs.5.00 from A/c *3953 on 02-09-26 to HARISH RAGAV.RRN 128925286398.Avl Bal Rs.84.78.Not you?SMS BLOCK to 9289592895-Indian Bank",
+        "VM-INDIANBK",
+      ),
+    ).draft!;
+    // Same RRN but different body (e.g. a changed available balance).
+    const b = {
+      ...a,
+      messageHash: "different-hash",
+      transactionDate: "2026-09-02T10:05:00.000Z",
+    };
+    expect(isDuplicate(b, [cand(a)]).signals).toContain("bankRef");
   });
 });

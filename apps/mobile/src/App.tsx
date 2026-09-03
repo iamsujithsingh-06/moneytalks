@@ -4,11 +4,17 @@ import { SyncProvider } from "./state/sync-context.js";
 import { SmsProvider } from "./state/sms-context.js";
 import { OcrProvider } from "./state/ocr-context.js";
 import { SmsCaptureProvider } from "./state/capture-context.js";
+import { LedgerProvider } from "./state/ledger-context.js";
 import { RequireAuth, GuestOnly } from "./components/auth/Guards.js";
 import { AppShell } from "./components/layout/AppShell.js";
 import { LoginPage } from "./pages/auth/LoginPage.js";
 import { RegisterPage } from "./pages/auth/RegisterPage.js";
 import { HomePage } from "./pages/HomePage.js";
+import { TransactionsPage } from "./pages/TransactionsPage.js";
+import { TransactionDetailsPage } from "./pages/TransactionDetailsPage.js";
+import { AddTransactionPage } from "./pages/AddTransactionPage.js";
+import { AnalysisPage } from "./pages/AnalysisPage.js";
+import { SettingsPage } from "./pages/SettingsPage.js";
 import { ReviewsPage } from "./pages/ReviewsPage.js";
 import { ReceiptsPage } from "./pages/ReceiptsPage.js";
 
@@ -18,7 +24,9 @@ function Providers({ children }: { children: React.ReactNode }) {
       <SyncProvider>
         <SmsProvider>
           <OcrProvider>
-            <SmsCaptureProvider>{children}</SmsCaptureProvider>
+            <SmsCaptureProvider>
+              <LedgerProvider>{children}</LedgerProvider>
+            </SmsCaptureProvider>
           </OcrProvider>
         </SmsProvider>
       </SyncProvider>
@@ -51,6 +59,11 @@ export const router = createBrowserRouter([
     children: [
       { path: "/", element: <Navigate to="/home" replace /> },
       { path: "/home", element: <HomePage /> },
+      { path: "/transactions", element: <TransactionsPage /> },
+      { path: "/transactions/:transactionId", element: <TransactionDetailsPage /> },
+      { path: "/analysis", element: <AnalysisPage /> },
+      { path: "/add", element: <AddTransactionPage /> },
+      { path: "/settings", element: <SettingsPage /> },
       { path: "/reviews", element: <ReviewsPage /> },
       { path: "/receipts", element: <ReceiptsPage /> },
     ],

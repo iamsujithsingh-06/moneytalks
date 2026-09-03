@@ -211,6 +211,28 @@ export async function clearDrafts(): Promise<void> {
   });
 }
 
+/**
+ * Delete resolved (non-pending) drafts older than `retentionDays`, so raw SMS
+ * bodies and SMS-derived data are not retained on-device indefinitely. Pending
+ * (still under review) drafts are always preserved regardless of age.
+ */
+export async function cleanupDrafts(
+  retentionDays = 30,
+): Promise<number> {
+  const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
+  const all = await listDrafts();
+  let removed = 0;
+  for (const rec of all) {
+    if (rec.status === "pending") continue;
+    const ts = Date.parse(rec.updatedAt ?? rec.createdAt);
+    if (Number.isNaN(ts) || ts < cutoff) {
+      await purgeDraft(rec.id);
+      removed += 1;
+    }
+  }
+  return removed;
+}
+
 export function newDraftId(): string {
   return uuid();
 }

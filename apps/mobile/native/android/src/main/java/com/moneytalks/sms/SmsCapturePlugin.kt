@@ -1,13 +1,8 @@
 package com.moneytalks.sms
 
 import android.Manifest
-import android.content.BroadcastReceiver
 import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.PackageManager
-import android.os.Build
-import android.provider.Telephony
 import androidx.core.content.ContextCompat
 import com.getcapacitor.JSObject
 import com.getcapacitor.Plugin
@@ -16,24 +11,32 @@ import com.getcapacitor.PluginMethod
 import com.getcapacitor.annotation.CapacitorPlugin
 import com.getcapacitor.annotation.Permission
 import com.getcapacitor.annotation.PermissionCallback
-import java.time.Instant
+import org.json.JSONArray
 
 /**
  * Native Android SMS capture plugin for the MoneyTalks PWA.
  *
  * Per ADR-005 the *native* layer owns SMS capture; the WebView never reads the
- * inbox. This plugin listens for the `SMS_RECEIVED_ACTION` broadcast (only
- * after the user grants `RECEIVE_SMS` via an in-app disclosure) and pushes each
+ * inbox. Incoming bank/UPI messages are delivered by the platform to the
+ * manifest-declared [SmsCaptureReceiver] (registered for
+ * `SMS_RECEIVED_ACTION`) and forwarded here via [dispatchSms], which pushes each
  * message to the JS side as a `"message"` event: `{ sender, body, receivedAt }`.
  *
  * The JS boundary (`SmsCaptureSource` / `capacitor-source.ts`) maps these onto
  * the shared parse/ingest pipeline. No raw message is ever sent to the server.
  *
+ * When the JS bridge is not loaded (cold start / WebView not yet up), the
+ * receiver persists the raw message via [enqueueSms] instead of dropping it.
+ * [startCapture] — which the JS side calls immediately after registering the
+ * `"message"` listener — drains that queue through the SAME `notifyListeners`
+ * path, so background-received transactions re-enter the existing ingest
+ * pipeline (dedup + draft store) and are never lost.
+ *
  * JS contract:
  * - `SmsCapture.getPermission()`            -> `{ state }` ("granted"|"prompt")
  * - `SmsCapture.requestPermission()`        -> `{ state }` ("granted"|"denied")
- * - `SmsCapture.startCapture()`             -> starts the receiver (no-op if revoked)
- * - `SmsCapture.stopCapture()`              -> unregisters the receiver
+ * - `SmsCapture.startCapture()`             -> flush queued messages; push live (manifest receiver owns delivery)
+ * - `SmsCapture.stopCapture()`              -> no-op (manifest receiver owns delivery)
  * - `SmsCapture.addListener("message", fn)` -> push events (Capacitor addListener)
  */
 @CapacitorPlugin(
@@ -44,32 +47,49 @@ import java.time.Instant
 )
 class SmsCapturePlugin : Plugin() {
 
-    /** Held call (setKeepAlive) through which broadcasts reach JS listeners. */
-    private var retainedCall: PluginCall? = null
+    companion object {
+        /** The live plugin instance, set when the bridge loads the plugin. */
+        @Volatile
+        private var active: SmsCapturePlugin? = null
 
-    private val receiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-            if (intent.action != Telephony.Sms.Intents.SMS_RECEIVED_ACTION) return
-            val messages = Telephony.Sms.Intents.getMessagesFromIntent(intent) ?: return
-            if (messages.isEmpty()) return
+        private const val PENDING_PREFS = "moneytalks_sms"
+        private const val PENDING_KEY = "pending_outbox"
+        private const val PENDING_MAX = 100
 
-            val body = messages
-                .mapNotNull { it.displayMessageBody }
-                .joinToString("\n")
-                .trim()
-            if (body.isEmpty()) return
-
-            val sender = messages.firstOrNull()?.originatingAddress
-            val data = JSObject().apply {
-                put("sender", sender)
-                put("body", body)
-                put("receivedAt", Instant.now().toString())
-            }
-            // Prefer notifyListeners so the JS-side addListener("message") fires;
-            // fall back to a window event if no retained call is active.
-            retainedCall?.notifyListeners("message", data)
-                ?: bridge?.triggerWindowJSEvent("message", data)
+        /**
+         * Entry point used by [SmsCaptureReceiver] to push a raw parsed SMS into
+         * the JS pipeline. Returns `false` when the bridge is not loaded so the
+         * receiver can persist the message instead of losing it.
+         */
+        @JvmStatic
+        fun dispatchSms(data: JSObject): Boolean {
+            val plugin = active ?: return false
+            plugin.notifyListeners("message", data)
+            return true
         }
+
+        /**
+         * Persist a raw SMS captured while the JS bridge was unavailable. The
+         * queue is drained transparently on the next [startCapture] through the
+         * normal `"message"` event path (bounded to [PENDING_MAX] entries).
+         */
+        @JvmStatic
+        fun enqueueSms(context: Context, data: JSObject) {
+            val prefs = context.getSharedPreferences(PENDING_PREFS, Context.MODE_PRIVATE)
+            try {
+                val existing = prefs.getString(PENDING_KEY, null)
+                val queue = if (existing.isNullOrBlank()) JSONArray() else JSONArray(existing)
+                if (queue.length() >= PENDING_MAX) queue.remove(0)
+                queue.put(data)
+                prefs.edit().putString(PENDING_KEY, queue.toString()).apply()
+            } catch (_: Exception) {
+                // Persistence is best-effort; never crash capture on failure.
+            }
+        }
+    }
+
+    override fun load() {
+        active = this
     }
 
     @PluginMethod
@@ -98,27 +118,31 @@ class SmsCapturePlugin : Plugin() {
 
     @PluginMethod
     fun startCapture(call: PluginCall) {
-        call.setKeepAlive(true)
-        retainedCall = call
-        val filter = IntentFilter(Telephony.Sms.Intents.SMS_RECEIVED_ACTION)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            context.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
-        } else {
-            @Suppress("DEPRECATION")
-            context.registerReceiver(receiver, filter)
-        }
+        flushPendingSms()
         call.resolve()
     }
 
     @PluginMethod
     fun stopCapture(call: PluginCall) {
-        try {
-            context.unregisterReceiver(receiver)
-        } catch (_: IllegalArgumentException) {
-            // Already unregistered.
-        }
-        retainedCall = null
         call.resolve()
+    }
+
+    /** Replay messages queued while the JS bridge was unavailable. */
+    private fun flushPendingSms() {
+        val ctx = context ?: return
+        val prefs = ctx.getSharedPreferences(PENDING_PREFS, Context.MODE_PRIVATE)
+        val raw = prefs.getString(PENDING_KEY, null)
+        if (raw.isNullOrBlank()) return
+        prefs.edit().remove(PENDING_KEY).apply()
+        try {
+            val queue = JSONArray(raw)
+            for (i in 0 until queue.length()) {
+                val item = queue.optJSONObject(i) ?: continue
+                notifyListeners("message", JSObject(item.toString()))
+            }
+        } catch (_: Exception) {
+            // Best-effort replay; a malformed entry is dropped, never replayed.
+        }
     }
 
     private fun isPermissionGranted(): Boolean =

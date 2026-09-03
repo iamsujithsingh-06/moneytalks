@@ -15,7 +15,7 @@ import { sha256Hex } from "./hash.js";
 
 export interface DuplicateMatch {
   isDuplicate: boolean;
-  signals: Array<"message" | "upiRef" | "fingerprint">;
+  signals: Array<"message" | "upiRef" | "bankRef" | "fingerprint">;
   matched: DuplicateCandidate | null;
 }
 
@@ -38,13 +38,14 @@ export function messageHash(body: string): string {
   return sha256Hex(body.replace(/\s+/g, " ").trim().toLowerCase());
 }
 
-/** Content fingerprint over (date, amount, currency, merchant, account). */
+/** Content fingerprint over (date, amount, currency, merchant, account, bank ref). */
 export function contentFingerprint(draft: {
   transactionDate: string;
   amountMinor: number;
   currency: string;
   merchant?: string | null;
   accountRef?: string | null;
+  bankRef?: string | null;
 }): string {
   const day = dayKey(draft.transactionDate) ?? "";
   const merchant = (draft.merchant ?? "")
@@ -52,7 +53,8 @@ export function contentFingerprint(draft: {
     .toLowerCase()
     .replace(/\s+/g, " ");
   const account = (draft.accountRef ?? "").trim().toLowerCase();
-  const payload = [day, String(draft.amountMinor), draft.currency.toUpperCase(), merchant, account].join("|");
+  const bankRef = (draft.bankRef ?? "").trim().toLowerCase();
+  const payload = [day, String(draft.amountMinor), draft.currency.toUpperCase(), merchant, account, bankRef].join("|");
   return sha256Hex(payload);
 }
 
@@ -86,6 +88,12 @@ export function isDuplicate(
       signals.push("upiRef");
       break;
     }
+    // 2b. Bank ref (e.g. Indian Bank RRN) is a stable, unique transaction id.
+    if (cand.bankRef && draft.bankRef && cand.bankRef === draft.bankRef) {
+      matched = cand;
+      signals.push("bankRef");
+      break;
+    }
     // 3. Fingerprint within window
     if (cand.amountMinor === draft.amountMinor) {
       const candDay = dayKey(cand.transactionDate);
@@ -97,6 +105,7 @@ export function isDuplicate(
           currency: cand.currency ?? draft.currency,
           merchant: cand.merchant,
           accountRef: cand.accountRef,
+          bankRef: cand.bankRef,
         }) === draftFp) {
           matched = cand;
           signals.push("fingerprint");
@@ -113,6 +122,7 @@ export function isDuplicate(
             currency: cand.currency ?? draft.currency,
             merchant: cand.merchant,
             accountRef: cand.accountRef,
+            bankRef: cand.bankRef,
           }) === draftFp) {
             matched = cand;
             signals.push("fingerprint");
