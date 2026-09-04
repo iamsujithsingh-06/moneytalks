@@ -227,7 +227,7 @@ export function SettingsPage() {
             </div>
             <div className="flex items-center gap-2">
               <Badge tone={pendingCount > 0 ? "warning" : "positive"}>
-                {syncStatusLabel(snapshot.status)}
+                {pendingCount > 0 ? syncStatusLabel(snapshot.status) : "Synced"}
               </Badge>
               <Button variant="ghost" size="sm" onClick={() => triggerSync()}>
                 Sync now

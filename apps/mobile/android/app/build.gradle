@@ -16,6 +16,24 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    def signingPropsFile = file("${System.getProperty('user.home')}/.moneytalks/signing.properties")
+    def hasSigningProps = signingPropsFile.exists()
+    def signingProps = new Properties()
+    if (hasSigningProps) {
+        signingPropsFile.withInputStream { signingProps.load(it) }
+    }
+
+    signingConfigs {
+        release {
+            if (hasSigningProps) {
+                storeFile file(signingProps.getProperty('storeFile'))
+                storePassword signingProps.getProperty('storePassword')
+                keyAlias signingProps.getProperty('keyAlias')
+                keyPassword signingProps.getProperty('keyPassword')
+            }
+        }
+    }
+
     buildTypes {
         release {
             // Enable R8/ProGuard for the release build. Shrinking the bytecode
@@ -25,6 +43,11 @@ android {
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // Sign with the local release keystore when signing.properties is
+            // present (~/.moneytalks). Secrets are never inlined here.
+            if (hasSigningProps) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 }

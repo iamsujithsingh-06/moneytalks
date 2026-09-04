@@ -107,6 +107,79 @@ describe("offlineStore", () => {
     });
   });
 
+  it("coalesces an update into a pending create (only one CREATE, latest values)", async () => {
+    // Regression for the create-update race: updating a not-yet-synced record
+    // must NOT leave a separate UPDATE op that could later conflict against the
+    // newly-created server row. The pending CREATE is preserved and its payload
+    // folded to the latest values.
+    await offlineStore.create("transactions", {
+      type: "expense",
+      amountMinor: 100,
+      currency: "INR",
+      transactionDate: "2026-02-01",
+      merchant: "A",
+      clientId: "t-coalesce",
+    });
+
+    // Update before the create has synced.
+    await offlineStore.update("transactions", "t-coalesce", { merchant: "B", amountMinor: 250 });
+
+    const pending = await getPendingOps();
+    // Exactly one op: the CREATE. No separate UPDATE.
+    expect(pending).toHaveLength(1);
+    expect(pending[0]!.op).toBe("create");
+    expect(pending[0]!.clientId).toBe("t-coalesce");
+    expect(pending[0]!.status).toBe("pending");
+
+    // The CREATE payload carries the latest merged values.
+    const createPayload = pending[0]!.payload as {
+      merchant: string;
+      amountMinor: number;
+    };
+    expect(createPayload.merchant).toBe("B");
+    expect(createPayload.amountMinor).toBe(250);
+
+    // Local record also holds the latest values (read-your-writes preserved).
+    const rec = await getEntity("t-coalesce");
+    expect((rec!.payload as { merchant: string }).merchant).toBe("B");
+    expect((rec!.localDirty as Record<string, unknown>).merchant).toBe("B");
+  });
+
+  it("still enqueues an update op when the record already has a server identity", async () => {
+    // Once a create has synced (record has an id/baseRev, no pending create),
+    // updates continue to enqueue a normal UPDATE op.
+    await putEntity({
+      entity: "transactions",
+      clientId: "t-synced",
+      id: "server-id-9",
+      rev: 1,
+      updatedAt: "2026-02-01T00:00:00.000Z",
+      payload: {
+        id: "server-id-9",
+        clientId: "t-synced",
+        rev: 1,
+        type: "expense",
+        amountMinor: 100,
+        currency: "INR",
+        transactionDate: "2026-02-01",
+        merchant: "A",
+      },
+      baseRev: 1,
+    });
+
+    await offlineStore.update("transactions", "t-synced", { merchant: "B" });
+
+    const pending = await getPendingOps();
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toMatchObject({
+      entity: "transactions",
+      op: "update",
+      clientId: "t-synced",
+      baseRev: 1,
+      status: "pending",
+    });
+  });
+
   it("remove tombstones the record and enqueues a delete op", async () => {
     await offlineStore.create("transactions", {
       type: "expense",

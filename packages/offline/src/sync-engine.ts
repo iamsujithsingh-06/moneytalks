@@ -19,6 +19,7 @@ import {
   putEntity,
   setMeta,
   setOpStatus,
+  updateOp,
 } from "./db.js";
 import { offlineStore } from "./offline-store.js";
 import { SyncClient } from "./sync-client.js";
@@ -202,6 +203,10 @@ export class SyncEngine {
     // server's previously-recorded rejection — no re-push, no server round-trip,
     // no clearing of user data, and deduplication is unchanged.
     await this.reconcileDuplicateOps();
+    // Self-heal stale/failed update (and delete) ops left over from the
+    // old create-update race (see reconcileStaleFailedOps). Deterministic,
+    // preserves user data, and does not weaken server conflict detection.
+    await this.reconcileStaleFailedOps();
     const issues = await this.loadIssues();
     const pending = await getPendingOps();
     const failed = pending.filter((o) => o.status === "failed").length;
@@ -268,7 +273,52 @@ export class SyncEngine {
     }
   }
 
-  /** Trigger a sync. No-op if one is in flight. */
+  /**
+   * Deterministic self-heal for a legacy `failed` UPDATE/DELETE that was the
+   * victim of the old create-update race.
+   *
+   * Before the offline-store coalesced updates into pending creates, a locally
+   * created record could be updated before its create synced, leaving a
+   * separate UPDATE op frozen with a stale `baseRev` (often 0). When the create
+   * then synced and the server's `$inc` advanced the row past that base, the
+   * update was rejected as a conflict and became terminal (`status: "failed"`),
+   * surfacing as a permanent "Needs attention".
+   *
+   * Recovery: if the matching record still exists (and is not deleted), the
+   * user's intended values live in the record's payload. We refresh the failed
+   * op's `baseRev` from the freshest local source of truth (record's baseRev,
+   * else its rev, else the op's current base) and re-arm it as `pending` so the
+   * next push re-delivers it. The server's own conflict check is UNCHANGED — if
+   * this is a genuine concurrent edit it will conflict again and stay failed
+   * for manual resolution. Nothing is deleted and no user data is discarded.
+   *
+   * To avoid unbounded retry churn on a genuinely conflicting op, each failed
+   * op is auto-recovered at most once (guarded by `attempt`). A record that is
+   * already clean on the server-consistent side (no localDirty) and matches the
+   * server is left untouched.
+   */
+  private async reconcileStaleFailedOps(): Promise<void> {
+    const ops = await getPendingOps();
+    for (const op of ops) {
+      if (op.status !== "failed") continue;
+      if (op.op !== "update" && op.op !== "delete") continue;
+      // Only ever self-heal once; a repeated failure is a real conflict for the
+      // user to resolve explicitly.
+      if ((op.attempt ?? 0) >= 1) continue;
+
+      const rec = await getEntity(op.clientId);
+      if (!rec || rec.entity !== op.entity) continue;
+      if (rec.deleted) continue;
+
+      const baseRev = rec.baseRev ?? rec.rev ?? op.baseRev ?? null;
+      if (rec.conflict) {
+        await putEntity({ ...rec, conflict: false });
+      }
+      if (op.seq !== undefined) {
+        await updateOp(op.seq, { status: "pending", baseRev, attempt: (op.attempt ?? 0) + 1 });
+      }
+    }
+  }
   async sync(_reason: "manual" | "start" | "reconnect" | "retry"): Promise<void> {
     if (this.manualRun) {
       // A sync is currently in flight. Remember that we were asked to sync
@@ -459,7 +509,15 @@ export class SyncEngine {
         entity: op.entity,
         op: op.op,
         clientId: op.clientId,
-        id: op.id,
+        // A never-synced local record may carry an empty-string id. The server
+        // treats `id` as optional for update/delete ops and locates the target
+        // by `clientId`; sending "" would fail its ObjectId validation
+        // (syncPushOpSchema.id), so omit it.
+        id: op.id || undefined,
+        // The op's `baseRev` is the server rev this change was based on. The
+        // offline-store now folds updates into a pending create (no stale
+        // baseRev race), and reconcileStaleFailedOps refreshes the baseRev of
+        // legacy failed ops, so sending the op's own baseRev is correct.
         baseRev: op.baseRev,
         payload: op.payload ?? {},
         idempotencyKey: op.idempotencyKey,

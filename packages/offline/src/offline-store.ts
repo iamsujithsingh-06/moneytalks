@@ -17,6 +17,7 @@ import {
   putEntity,
   setMeta,
   setOpStatus,
+  updateOp,
 } from "./db.js";
 
 export type EntityDoc<T extends SyncEntity> = T extends "transactions"
@@ -53,6 +54,45 @@ function toRecord(doc: object): Record<string, unknown> {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+/**
+ * Fold a local update into a still-pending CREATE for the same clientId.
+ *
+ * On a fresh (unsynced) record the outbox already holds a `create` op. If the
+ * entity is updated before that create reaches the server, enqueueing a
+ * separate `update` op would later race the newly-created server row: the
+ * server starts new rows at rev 0, the pending update would carry a frozen
+ * baseRev from the unsynced record (often 0), and `$inc` on the applied create
+ * bumps the server past the stale base → a false/ambiguous conflict that never
+ * self-heals.
+ *
+ * Instead we keep the single CREATE op (semantics unchanged) and just fold the
+ * latest values into its payload, so push() sends one coherent create with the
+ * most current data. No separate UPDATE is emitted for the unsynced entity.
+ *
+ * Returns true if the update was folded into a pending create (nothing else
+ * should be enqueued). Only a `pending` create is coalesced — an `inFlight` or
+ * `failed` create is left alone so we never mutate an op that may already be
+ * on the wire (the normal update path then applies, and the push-time/sync
+ * reconcile layers handle those terminal states).
+ */
+async function coalesceIntoPendingCreate(
+  entity: SyncEntity,
+  clientId: string,
+  payload: Record<string, unknown>,
+): Promise<boolean> {
+  const ops = await getPendingOps();
+  const create = ops.find(
+    (o) =>
+      o.op === "create" &&
+      o.entity === entity &&
+      o.clientId === clientId &&
+      o.status === "pending",
+  );
+  if (!create || create.seq === undefined) return false;
+  await updateOp(create.seq, { payload: toRecord(payload) });
+  return true;
 }
 
 /**
@@ -154,17 +194,22 @@ export const offlineStore = {
       updatedAt: now,
     });
 
-    await enqueueOp({
-      entity,
-      op: "update",
-      clientId,
-      id: rec.id,
-      baseRev: rec.baseRev ?? rec.rev ?? null,
-      payload: toRecord(base),
-      createdAt: nowIso(),
-      attempt: 0,
-      status: "pending",
-    });
+    // If the record is still unsynced (a pending create exists), fold this
+    // update into that create instead of enqueueing a racing update op.
+    const coalesced = await coalesceIntoPendingCreate(entity, clientId, base);
+    if (!coalesced) {
+      await enqueueOp({
+        entity,
+        op: "update",
+        clientId,
+        id: rec.id,
+        baseRev: rec.baseRev ?? rec.rev ?? null,
+        payload: toRecord(base),
+        createdAt: nowIso(),
+        attempt: 0,
+        status: "pending",
+      });
+    }
 
     return merged as unknown as EntityDoc<T>;
   },

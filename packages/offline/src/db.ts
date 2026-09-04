@@ -224,6 +224,19 @@ export function deleteOp(seq: number): Promise<void> {
   );
 }
 
+/** Replace a single outbox op in place (e.g. when folding an update into a
+ *  pending create / refreshing its baseRev). No-op if `seq` is absent. */
+export function updateOp(seq: number, patch: Partial<OutboxOp>): Promise<void> {
+  return writeTx(async (s) => {
+    const op = await requestToPromise(s.outbox.get(seq) as IDBRequest<OutboxOp | undefined>);
+    if (op) {
+      await requestToPromise(
+        s.outbox.put({ ...op, ...patch, seq } as OutboxOp) as IDBRequest<IDBValidKey>,
+      );
+    }
+  });
+}
+
 /* --------------------------------- meta --------------------------------- */
 
 export function getMeta(key: string): Promise<unknown> {

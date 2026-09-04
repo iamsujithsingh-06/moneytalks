@@ -8,7 +8,7 @@ import type {
 } from "@moneytalks/types";
 import type { SyncClient } from "./sync-client.js";
 import { SyncEngine, SYNC_ENTITIES } from "./sync-engine.js";
-import { clearAll, getEntity, getMeta, getPendingOps, putEntity, setMeta, setOpStatus } from "./db.js";
+import { clearAll, enqueueOp, getEntity, getMeta, getPendingOps, putEntity, setMeta, setOpStatus } from "./db.js";
 import { offlineStore } from "./offline-store.js";
 
 function makeClient(changesByEntity?: Partial<Record<SyncEntity, SyncChange[]>>) {
@@ -180,6 +180,231 @@ describe("SyncEngine push", () => {
     const pending = await getPendingOps();
     expect(pending).toHaveLength(0);
     expect(await getMeta("lastSyncAt")).toBeTruthy();
+  });
+
+  it("omits an empty-string id when pushing an update for a never-synced record", async () => {
+    // Regression: a locally-created record that has never synced keeps
+    // `id === ""`. If it is updated before the create syncs, the update op
+    // carries `id: ""`, which the server rejects (syncPushOpSchema.id must be
+    // a 24-char ObjectId or absent). push() must drop the empty string.
+    const settingsClientId = "00000000-0000-4000-8000-0000000000ab";
+    await enqueueOp({
+      entity: "settings",
+      op: "update",
+      clientId: settingsClientId,
+      id: "",
+      baseRev: null,
+      payload: { initialBalanceMinor: 5000 },
+      createdAt: "2026-01-05T00:00:00.000Z",
+      attempt: 0,
+      status: "pending",
+    });
+
+    const client = makeClient();
+    client.push = vi.fn(() =>
+      Promise.resolve({
+        results: [
+          {
+            status: "applied",
+            op: "update",
+            entity: "settings",
+            clientId: settingsClientId,
+            id: "65f0c2b5a1b2c3d4e5f60718",
+            canonical: {
+              id: "65f0c2b5a1b2c3d4e5f60718",
+              clientId: settingsClientId,
+              rev: 1,
+              initialBalanceMinor: 5000,
+            },
+          } as SyncPushResultItem,
+        ],
+      }),
+    ) as unknown as SyncClient["push"] & ReturnType<typeof vi.fn>;
+
+    const engine = makeEngine(client);
+    await engine.sync("manual");
+
+    const sentOps = client.push.mock.calls[0]![0] as SyncPushOp[];
+    expect(sentOps).toHaveLength(1);
+    expect(sentOps[0]!.op).toBe("update");
+    expect(sentOps[0]!.clientId).toBe(settingsClientId);
+    // The empty-string id must not be sent; the server resolves the target by
+    // clientId and treats `id` as optional.
+    expect(sentOps[0]!.id).toBeUndefined();
+
+    const pending = await getPendingOps();
+    expect(pending).toHaveLength(0);
+  });
+
+  it("pushes a single CREATE with latest values when create+update raced before sync", async () => {
+    // End-to-end regression for the create-update race. When a record is
+    // created and then updated before the create syncs, only ONE create op must
+    // be pushed (the update folded into its payload), the server row is created
+    // with the latest values, and no UPDATE conflict occurs.
+    const settingsClientId = "00000000-0000-4000-8000-0000000000ab";
+    await offlineStore.create("settings", {
+      initialBalanceMinor: 1000,
+      clientId: settingsClientId,
+    });
+    // Update before the create has synced — folds into the pending create.
+    await offlineStore.update("settings", settingsClientId, { initialBalanceMinor: 5000 });
+
+    const client = makeClient();
+    let receivedOps: SyncPushOp[] | undefined;
+    client.push = vi.fn((ops: SyncPushOp[]) => {
+      receivedOps = ops;
+      return Promise.resolve({
+        results: ops.map((op) => ({
+          status: "applied",
+          op: op.op,
+          entity: op.entity,
+          clientId: op.clientId,
+          id: "65f0c2b5a1b2c3d4e5f60718",
+          canonical: {
+            id: "65f0c2b5a1b2c3d4e5f60718",
+            clientId: op.clientId,
+            rev: 0,
+            initialBalanceMinor:
+              (op.payload as { initialBalanceMinor?: number }).initialBalanceMinor ?? 0,
+          },
+        })) as SyncPushResultItem[],
+      });
+    }) as unknown as SyncClient["push"] & ReturnType<typeof vi.fn>;
+
+    const engine = makeEngine(client);
+    await engine.sync("manual");
+
+    // Only a CREATE is pushed — no UPDATE that could conflict.
+    expect(receivedOps).toHaveLength(1);
+    expect(receivedOps![0]!.op).toBe("create");
+    expect(receivedOps![0]!.clientId).toBe(settingsClientId);
+    expect((receivedOps![0]!.payload as { initialBalanceMinor?: number }).initialBalanceMinor).toBe(5000);
+
+    // Outbox is drained; nothing failed.
+    const pending = await getPendingOps();
+    expect(pending).toHaveLength(0);
+  });
+
+  it("detects genuine concurrent-edit conflicts and keeps the local version", async () => {
+    // The coalescing fix must NOT weaken or silently swallow server conflict
+    // detection for updates. A conflict already confirmed once (attempt >= 1)
+    // is left failed for manual resolution; the local version is preserved and
+    // an issue is recorded.
+    const settingsClientId = "00000000-0000-4000-8000-0000000000ab";
+    await putEntity({
+      entity: "settings",
+      clientId: settingsClientId,
+      id: "65f0c2b5a1b2c3d4e5f60718",
+      rev: 0,
+      updatedAt: "2026-01-05T00:00:00.000Z",
+      baseRev: 0,
+      payload: { id: "65f0c2b5a1b2c3d4e5f60718", clientId: settingsClientId, rev: 0, initialBalanceMinor: 1000 },
+    });
+    await enqueueOp({
+      entity: "settings",
+      op: "update",
+      clientId: settingsClientId,
+      id: "65f0c2b5a1b2c3d4e5f60718",
+      baseRev: 0,
+      payload: { initialBalanceMinor: 5000 },
+      createdAt: "2026-01-05T00:00:00.000Z",
+      attempt: 1,
+      status: "failed",
+    });
+
+    const client = makeClient();
+    const engine = makeEngine(client);
+    await engine.refreshStatic();
+
+    const pending = await getPendingOps();
+    const failed = pending.find((o) => o.clientId === settingsClientId);
+    expect(failed).toBeTruthy();
+    expect(failed!.status).toBe("failed");
+
+    // Local user version preserved.
+    const rec = await getEntity(settingsClientId);
+    expect((rec!.payload as { initialBalanceMinor?: number }).initialBalanceMinor).toBe(1000);
+  });
+
+  it("self-heals a stale failed UPDATE by refreshing baseRev and re-arming it", async () => {
+    // Recovery for the already-broken device state: a `failed` update left over
+    // from the old create-update race is re-armed as `pending` with the local
+    // record's freshest baseRev, so the next push can re-deliver it. No user
+    // data is discarded and server conflict detection is unchanged.
+    const settingsClientId = "00000000-0000-4000-8000-0000000000ab";
+    await putEntity({
+      entity: "settings",
+      clientId: settingsClientId,
+      id: "65f0c2b5a1b2c3d4e5f60718",
+      rev: 1,
+      updatedAt: "2026-01-05T00:00:00.000Z",
+      baseRev: 1,
+      conflict: true,
+      payload: { id: "65f0c2b5a1b2c3d4e5f60718", clientId: settingsClientId, rev: 1, initialBalanceMinor: 5000 },
+    });
+    // Legacy failed update: frozen baseRev 0, attempt 0.
+    await enqueueOp({
+      entity: "settings",
+      op: "update",
+      clientId: settingsClientId,
+      id: "65f0c2b5a1b2c3d4e5f60718",
+      baseRev: 0,
+      payload: { initialBalanceMinor: 5000 },
+      createdAt: "2026-01-05T00:00:00.000Z",
+      attempt: 0,
+      status: "failed",
+    });
+
+    const client = makeClient();
+    const engine = makeEngine(client);
+    await engine.refreshStatic();
+
+    const pending = await getPendingOps();
+    const recovered = pending.find((o) => o.clientId === settingsClientId);
+    expect(recovered).toBeTruthy();
+    expect(recovered!.status).toBe("pending");
+    expect(recovered!.baseRev).toBe(1);
+    expect(recovered!.attempt).toBe(1);
+
+    const rec = await getEntity(settingsClientId);
+    expect(rec!.conflict).toBe(false);
+  });
+
+  it("does not loop a genuinely-conflicting failed update past one auto-heal", async () => {
+    // A failed update that is a REAL conflict must not be re-armed forever.
+    // After the single auto-heal attempt it stays failed for manual resolution.
+    const settingsClientId = "00000000-0000-4000-8000-0000000000ab";
+    await putEntity({
+      entity: "settings",
+      clientId: settingsClientId,
+      id: "65f0c2b5a1b2c3d4e5f60718",
+      rev: 2,
+      updatedAt: "2026-01-05T00:00:00.000Z",
+      baseRev: 2,
+      conflict: true,
+      payload: { id: "65f0c2b5a1b2c3d4e5f60718", clientId: settingsClientId, rev: 2, initialBalanceMinor: 5000 },
+    });
+    await enqueueOp({
+      entity: "settings",
+      op: "update",
+      clientId: settingsClientId,
+      id: "65f0c2b5a1b2c3d4e5f60718",
+      baseRev: 2,
+      payload: { initialBalanceMinor: 6000 },
+      createdAt: "2026-01-05T00:00:00.000Z",
+      attempt: 1,
+      status: "failed",
+    });
+
+    const client = makeClient();
+    const engine = makeEngine(client);
+    await engine.refreshStatic();
+
+    const pending = await getPendingOps();
+    const failed = pending.find((o) => o.clientId === settingsClientId);
+    expect(failed).toBeTruthy();
+    expect(failed!.status).toBe("failed");
+    expect(failed!.attempt).toBe(1);
   });
 
   it("surfaces a conflict but keeps the local version", async () => {

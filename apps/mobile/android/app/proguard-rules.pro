@@ -11,5 +11,11 @@
 # The Capacitor Preferences native plugin.
 -keep class com.getcapacitor.community.preferences.* { *; }
 
+# Keep Capacitor's runtime permission annotations (@CapacitorPlugin, @Permission,
+# @PermissionCallback) so the permission system's reflection still sees them.
+# Without this, R8 strips the annotations and requestPermissionForAlias NPEs.
+-keep class com.getcapacitor.annotation.* { *; }
+-keepattributes *Annotation*
+
 # Preserve source file name only for actionable stack traces in crash reports.
 -keepattributes SourceFile,LineNumberTable
